@@ -1,0 +1,54 @@
+Part 3: Arrange Your Files LocallyOrganise your project directory exactly like this:textmy-project/
+├── frontend/
+│   ├── index.html       <-- Your custom HTML dashboard
+│   ├── style.css        <-- Your custom CSS styles
+│   └── script.js        <-- Your frontend JavaScript logic
+└── backend/
+    ├── main.py          <-- Create this blank file
+    └── requirements.txt <-- Create this blank file
+Use code with caution.🐍 Part 4: Add Backend CodeOpen backend/requirements.txt and paste this exact text:textfastapi
+uvicorn
+gspread
+google-auth
+pandas
+Use code with caution.Open backend/main.py and paste this exact python script:pythonimport os, json, time, gspread, pandas as pd
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+from google.oauth2.service_account import Credentials
+
+app = FastAPI()
+app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
+
+CACHED_DATA, LAST_FETCH_TIME, CACHE_TTL = None, 0, 3600
+
+@app.get("/api/data")
+def get_dashboard_data():
+    global CACHED_DATA, LAST_FETCH_TIME
+    current_time = time.time()
+    if CACHED_DATA is not None and (current_time - LAST_FETCH_TIME) < CACHE_TTL:
+        return {"status": "success", "data": CACHED_DATA}
+
+    scopes = ["https://googleapis.com", "https://googleapis.com"]
+    creds = Credentials.from_service_account_info(json.loads(os.environ.get("GOOGLE_CREDENTIALS")), scopes=scopes)
+    sheet = gspread.authorize(creds).open_by_url(os.environ.get("GOOGLE_SHEET_URL")).sheet1
+
+    CACHED_DATA = pd.DataFrame(sheet.get_all_records()).to_dict(orient="records")
+    LAST_FETCH_TIME = current_time
+    return {"status": "success", "data": CACHED_DATA}
+Use code with caution.🚀 Part 5: Deploy the Python BackendPush your backend folder to a new GitHub repository.Sign up at Render.com and click New + > Web Service.Connect your GitHub repository.Fill in these exact deployment configurations:Runtime: PythonBuild Command: pip install -r requirements.txtStart Command: uvicorn main:app --host 0.0.0.0 --port $PORTClick Advanced and click Add Environment Variable to add these two rows:Key: GOOGLE_SHEET_URL | Value: (Paste your full Google Sheet URL)Key: GOOGLE_CREDENTIALS | Value: (Paste the entire text content inside your downloaded JSON key file)Click Deploy and copy your live URL once it finishes (e.g., https://onrender.com).🌐 Part 6: Update and Deploy Your FrontendOpen your local frontend/script.js file and paste this data connection snippet:javascript// Replace with your live Render URL from Part 5
+const BACKEND_URL = "https://onrender.com";
+
+async function getSheetData() {
+  try {
+    const response = await fetch(BACKEND_URL);
+    const result = await response.json();
+    if (result.status === "success") {
+      console.log("Your data loaded instantly:", result.data);
+      // Put your custom code here to build your frontend charts/tables using result.data
+    }
+  } catch (err) {
+    console.error("Error loading data:", err);
+  }
+}
+window.onload = getSheetData;
+Use code with caution.Save your frontend folder to a GitHub repository.Log in to Vercel.com, click Add New > Project, select your frontend repository, and click Deploy.

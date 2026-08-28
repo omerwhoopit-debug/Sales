@@ -1,0 +1,33 @@
+# =========================================================
+# CRITICAL: Prevent Leaking Credentials & API Keys to GitHub
+# =========================================================
+
+# Google Cloud Service Account JSON Key files
+*.json
+!package.json
+!manifest.json
+
+# Streamlit Local Secrets
+.streamlit/secrets.toml
+
+# Environment Variables
+.env
+.env.*
+
+# Python Cache & Virtual Environments
+__pycache__/
+*.py[cod]
+*$py.class
+venv/
+.venv/
+env/
+ENV/
+
+# OS specific files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Temporary and log files
+*.log
+scratch/

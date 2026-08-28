@@ -1,0 +1,428 @@
+<!DOCTYPE html>
+<html lang="en-GB">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Sales Dashboard · UKPDA & ILC</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800;900&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<link rel="icon" type="image/png" sizes="32x32" href="favicon-32.png">
+<link rel="icon" type="image/png" sizes="64x64" href="favicon.png">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div class="shell">
+  <!-- ===================== SIDEBAR ===================== -->
+  <aside class="sidebar" id="sidebar">
+    <button class="sidebar-toggle" id="sidebarToggle" title="Collapse sidebar">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" id="sidebarToggleIcon"><path d="M15 18l-6-6 6-6" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    </button>
+    <div class="sb-brand">
+      <img class="mark" src="logo.png" width="42" height="42" alt="Sales Dashboard logo" style="border-radius:13px;box-shadow:0 3px 8px rgba(212,175,55,.28);object-fit:cover;">
+      <div class="sb-brand-text">
+        <h1>Sales Dashboard</h1>
+        <p>UKPDA &amp; ILC</p>
+      </div>
+    </div>
+
+    <nav class="sb-nav">
+      <div class="sb-link active" data-label="Overview" data-target="topArea"><svg width="17" height="17" viewBox="0 0 24 24" fill="none"><path d="M3 11.5 12 4l9 7.5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M5 10v9a1 1 0 0 0 1 1h4v-6h4v6h4a1 1 0 0 0 1-1v-9" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="sb-link-label">Overview</span></div>
+      <div class="sb-section-label">Performance</div>
+      <div class="sb-link" data-label="Revenue Trends" data-target="secTrends"><svg width="17" height="17" viewBox="0 0 24 24" fill="none"><path d="M3 17l6-6 4 4 8-9" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="sb-link-label">Revenue Trends</span></div>
+      <div class="sb-link" data-label="Revenue Breakdown" data-target="secBreakdown"><svg width="17" height="17" viewBox="0 0 24 24" fill="none"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg><span class="sb-link-label">Revenue Breakdown</span></div>
+      <div class="sb-link" data-label="Full Payment Sales" data-target="secFullPayment"><svg width="17" height="17" viewBox="0 0 24 24" fill="none"><path d="M9 12l2 2 4-4" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="2"/></svg><span class="sb-link-label">Full Payment Sales</span></div>
+      <div class="sb-link" data-label="Course Performance" data-target="secCourses"><svg width="17" height="17" viewBox="0 0 24 24" fill="none"><path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H20v15H6.5A2.5 2.5 0 0 0 4 20.5v-15Z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg><span class="sb-link-label">Course Performance</span></div>
+      <div class="sb-section-label">Programs</div>
+      <div class="sb-link" data-label="Phlebotomy" data-target="secPhleb"><svg width="17" height="17" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="2"/><circle cx="12" cy="12" r="4" stroke="currentColor" stroke-width="2"/></svg><span class="sb-link-label">Phlebotomy</span></div>
+      <div class="sb-link" data-label="CPD Sales" data-target="secCpd"><svg width="17" height="17" viewBox="0 0 24 24" fill="none"><path d="M12 3 2 8l10 5 10-5-10-5Z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><path d="M4 10v6c0 1.5 3.5 3 8 3s8-1.5 8-3v-6" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg><span class="sb-link-label">CPD Sales</span></div>
+      <div class="sb-section-label">People</div>
+      <div class="sb-link" data-label="Lead Sources" data-target="secLeads"><svg width="17" height="17" viewBox="0 0 24 24" fill="none"><path d="M21 12.8A9 9 0 1 1 11.2 3" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><path d="M21 3l-9 9" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg><span class="sb-link-label">Lead Sources</span></div>
+      <div class="sb-link" data-label="Sales by Agent" data-target="secAgents"><svg width="17" height="17" viewBox="0 0 24 24" fill="none"><path d="M22 10L12 5 2 10l10 5 10-5Z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><path d="M6 12v5c0 1.5 2.7 3 6 3s6-1.5 6-3v-5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg><span class="sb-link-label">Sales by Agent</span></div>
+      <div class="sb-link" data-label="Monthly Report" data-target="secMonthly"><svg width="17" height="17" viewBox="0 0 24 24" fill="none"><rect x="3" y="5" width="18" height="16" rx="2" stroke="currentColor" stroke-width="2"/><path d="M8 3v4M16 3v4M3 10h18" stroke="currentColor" stroke-width="2"/></svg><span class="sb-link-label">Monthly Report</span></div>
+      <div class="sb-section-label">System</div>
+      <div class="sb-link" id="navManageAgents" data-label="Manage Agents"><svg width="17" height="17" viewBox="0 0 24 24" fill="none"><path d="M17 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><circle cx="9.5" cy="7" r="4" stroke="currentColor" stroke-width="2"/><path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg><span class="sb-link-label">Manage Agents</span></div>
+      <div class="sb-link" id="navFilters" data-label="Filters"><svg width="17" height="17" viewBox="0 0 24 24" fill="none"><path d="M4 6h16M7 12h10M10 18h4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg><span class="sb-link-label">Filters</span></div>
+      <div class="sb-link" id="navTheme" data-label="Dark Mode"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" id="sbIconMoon"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79Z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg><svg width="17" height="17" viewBox="0 0 24 24" fill="none" id="sbIconSun" style="display:none;"><circle cx="12" cy="12" r="4.5" stroke="currentColor" stroke-width="2"/><path d="M12 2v2.5M12 19.5V22M4.22 4.22l1.77 1.77M18 18l1.78 1.78M2 12h2.5M19.5 12H22M4.22 19.78 6 18M18 6l1.78-1.78" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg><span id="sbThemeLabel" class="sb-link-label">Light Mode</span></div>
+    </nav>
+
+    <div class="sb-footer-card">
+      <div><span class="dot"></span><b>Data synced</b></div>
+      <div style="margin-top:5px;color:var(--ink-3);" id="sbSyncInfo">Loading…</div>
+    </div>
+  </aside>
+
+  <!-- ===================== MAIN ===================== -->
+  <main class="main">
+
+    <!-- Sticky top: search/actions + filters always stay visible while scrolling -->
+    <div class="sticky-header">
+      <div class="topbar">
+        <div class="search-box">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none"><circle cx="11" cy="11" r="7" stroke="currentColor" stroke-width="2"/><path d="M21 21l-4-4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+          <input type="text" id="fSearch" placeholder="Search students, courses, agents…">
+          <span class="search-kbd">⌘K</span>
+        </div>
+        <button class="filter-toggle" id="filterToggle" type="button" aria-expanded="false" title="Show or hide filters">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none"><path d="M4 6h16M7 12h10M10 18h4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+          <span>Filters</span>
+          <svg class="filter-chevron" width="12" height="12" viewBox="0 0 24 24" fill="none"><path d="M6 9l6 6 6-6" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </button>
+        <div class="top-actions">
+          <div style="position:relative;">
+            <div class="icon-btn" id="notifBellBtn" title="New qualification sales">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M18 8a6 6 0 1 0-12 0c0 7-3 9-3 9h18s-3-2-3-9" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M13.73 21a2 2 0 0 1-3.46 0" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+              <span class="badge-count" id="notifBadge" style="display:none;">0</span>
+            </div>
+            <div id="notifPanel" class="notif-panel">
+              <div class="notif-panel-head">New Qualification Sales</div>
+              <div id="notifList"></div>
+            </div>
+          </div>
+          <div class="icon-btn" id="exportBtn" title="Export data as CSV">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M12 3v12m0 0l-4-4m4 4l4-4" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+          </div>
+          <div class="icon-btn" id="themeToggleBtn" title="Toggle dark / light mode">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" id="topIconMoon"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79Z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" id="topIconSun" style="display:none;"><circle cx="12" cy="12" r="4.5" stroke="currentColor" stroke-width="2"/><path d="M12 2v2.5M12 19.5V22M4.22 4.22l1.77 1.77M18 18l1.78 1.78M2 12h2.5M19.5 12H22M4.22 19.78 6 18M18 6l1.78-1.78" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+          </div>
+          <div class="user-chip" title="Admin">
+            <div class="user-avatar">A</div>
+            <div>
+              <div class="u-name">Admin</div>
+              <div class="u-role">Operations</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Compact filters: collapsed by default so the dashboard hero stays visible -->
+      <div class="filters-panel" id="filtersPanel">
+        <div class="filters-grid">
+          <div class="fg">
+            <label>From</label>
+            <div class="date-field">
+              <input type="text" id="fDateFromText" placeholder="dd/mm/yyyy" readonly>
+              <input type="date" id="fDateFrom" class="date-field-native">
+            </div>
+          </div>
+          <div class="fg">
+            <label>To</label>
+            <div class="date-field">
+              <input type="text" id="fDateToText" placeholder="dd/mm/yyyy" readonly>
+              <input type="date" id="fDateTo" class="date-field-native">
+            </div>
+          </div>
+          <div class="fg"><label>Period</label><select id="monthSelect"></select></div>
+          <div class="fg"><label>College</label><select id="fCollege"><option value="">All colleges</option></select></div>
+          <div class="fg"><label>Course</label><select id="fCourse"><option value="">All courses</option></select></div>
+          <div class="fg"><label>Lead source</label><select id="fLead"><option value="">All sources</option></select></div>
+          <div class="fg"><label>Agent</label><select id="fAgent"><option value="">All agents</option></select></div>
+          <button class="reset-chip" id="resetBtn">Reset filters</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Greeting -->
+    <div class="greeting fade-in">
+      <h2 id="greetingText">Good day! <span class="spark">✨</span></h2>
+      <p id="greetingSub">Loading your latest figures…</p>
+    </div>
+
+    <div id="topArea"></div>
+
+    <!-- KPI row -->
+    <div class="kpi-row" id="kpiRow"></div>
+
+
+    <!-- Hero banner -->
+    <div class="hero-banner fade-in">
+      <div class="hero-text">
+        <div style="display:flex;align-items:center;gap:14px;margin-bottom:12px;">
+          <div id="heroAgentAvatar" style="display:none;width:72px;height:72px;border-radius:16px;overflow:hidden;flex-shrink:0;background:var(--panel-2);align-items:center;justify-content:center;border:2px solid rgba(255,255,255,.3);box-shadow:0 8px 20px -6px rgba(0,0,0,.5);">
+            <span id="heroAgentInitials" style="font-size:22px;font-weight:800;color:var(--violet-2);"></span>
+            <img id="heroAgentPhoto" src="" alt="" style="width:100%;height:100%;object-fit:cover;display:none;">
+          </div>
+          <div class="hero-eyebrow" id="heroEyebrow" style="margin-bottom:0;">This Month's Highlight</div>
+        </div>
+        <h2 class="hero-headline"><span id="heroHeadlinePrefix">Your top course is</span> <span class="accent" id="heroCourseName">—</span></h2>
+        <p class="hero-sub" id="heroSub">Loading course performance…</p>
+        <div class="hero-ctas">
+          <button class="btn btn-violet" data-target="secCourses">View Course Performance →</button>
+        </div>
+      </div>
+      <div class="hero-art">
+        <svg viewBox="0 0 220 170" width="220" height="170" xmlns="http://www.w3.org/2000/svg">
+          <defs>
+            <radialGradient id="orb1" cx="50%" cy="50%" r="50%">
+              <stop offset="0%" stop-color="#C084FC" stop-opacity="0.9"/><stop offset="100%" stop-color="#8B5CF6" stop-opacity="0"/>
+            </radialGradient>
+            <radialGradient id="orb2" cx="50%" cy="50%" r="50%">
+              <stop offset="0%" stop-color="#2DD4BF" stop-opacity="0.8"/><stop offset="100%" stop-color="#2DD4BF" stop-opacity="0"/>
+            </radialGradient>
+            <linearGradient id="lineGrad" x1="0" y1="0" x2="1" y2="0">
+              <stop offset="0%" stop-color="#F4C430"/><stop offset="100%" stop-color="#EC4899"/>
+            </linearGradient>
+          </defs>
+          <circle cx="150" cy="55" r="55" fill="url(#orb1)"/>
+          <circle cx="60" cy="120" r="42" fill="url(#orb2)"/>
+          <polyline points="15,120 55,90 90,105 130,55 175,70 205,30" fill="none" stroke="url(#lineGrad)" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+          <circle cx="205" cy="30" r="5" fill="#F4C430"/>
+          <circle cx="15" cy="120" r="3.5" fill="#EC4899"/>
+          <circle cx="90" cy="105" r="3" fill="#fff" fill-opacity="0.7"/>
+          <circle cx="130" cy="55" r="3" fill="#fff" fill-opacity="0.7"/>
+        </svg>
+      </div>
+    </div>
+
+    <!-- Top grid: courses + lead breakdown | right rail -->
+    <div class="main-rail-grid" id="secMainRail">
+      <div>
+        <div class="top-grid">
+          <div class="panel fade-in">
+            <div class="panel-head"><h3>Top Performing Courses</h3><span class="view-all" data-target="secCourses">View All</span></div>
+            <div id="topCoursesList"></div>
+          </div>
+          <div class="panel fade-in">
+            <div class="panel-head"><h3>Lead Source Breakdown</h3><span class="tag" id="leadTotalTag">—</span></div>
+            <div id="leadBreakdownList"></div>
+            <div style="display:flex;align-items:center;gap:16px;margin-top:14px;padding-top:14px;border-top:1px solid var(--line);">
+              <div class="chart-box" style="width:110px;height:110px;flex-shrink:0;"><canvas id="chartLeadDonut"></canvas></div>
+              <div style="min-width:0;">
+                <div style="font-size:10.5px;text-transform:uppercase;letter-spacing:.06em;color:var(--ink-3);font-weight:700;margin-bottom:4px;">Top Source</div>
+                <div id="leadTopSourceName" style="font-size:15px;font-weight:800;font-family:'Plus Jakarta Sans';margin-bottom:3px;">—</div>
+                <div id="leadTopSourceSub" style="font-size:11.5px;color:var(--ink-2);">—</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="right-rail">
+        <div class="summary-card fade-in">
+          <div class="sc-top">
+            <div class="sc-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="none"><rect x="3" y="5" width="18" height="16" rx="2" stroke="#fff" stroke-width="2"/><path d="M8 3v4M16 3v4M3 10h18" stroke="#fff" stroke-width="2"/></svg></div>
+            <div class="sc-label">Period Covered</div>
+          </div>
+          <div class="sc-value" id="periodCoveredValue">—</div>
+          <div class="sc-sub" id="periodCoveredSub">—</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ============ Detailed sections (full width) ============ -->
+    <div id="secTrends">
+      <div class="section-title"><h2>Performance Trends</h2><span class="sub" id="rowCountLabel"></span></div>
+      <div class="panel fade-in">
+        <div class="panel-head"><h3>Daily Sales Trend</h3><span class="tag">Revenue (£)</span></div>
+        <div class="chart-box" style="height:270px;"><canvas id="chartDailyTrend"></canvas></div>
+      </div>
+
+      <div class="grid-2b" style="margin-top:16px;">
+        <div class="panel fade-in">
+          <div class="panel-head"><h3>Revenue by College</h3><span class="tag">Donut</span></div>
+          <div class="chart-box" style="height:220px;"><canvas id="chartCollegeDonut"></canvas></div>
+          <div class="legend-row" id="collegeLegend"></div>
+        </div>
+        <div class="panel fade-in">
+          <div class="panel-head"><h3>Revenue by Course</h3><span class="tag">Highest → Lowest</span></div>
+          <div class="chart-box" style="height:220px;"><canvas id="chartRevByCourse"></canvas></div>
+        </div>
+      </div>
+
+      <div class="panel fade-in" style="margin-top:16px;">
+        <div class="panel-head"><h3>Daily Enrollments</h3><span class="tag">Count</span></div>
+        <div class="chart-box" style="height:240px;"><canvas id="chartDailyEnroll"></canvas></div>
+      </div>
+    </div>
+
+    <div id="secBreakdown">
+      <div class="section-title"><h2>Revenue Breakdown</h2></div>
+      <div class="grid-3">
+        <div class="panel rev-card fade-in" id="cardUKPDA"></div>
+        <div class="panel rev-card fade-in" id="cardILC"></div>
+        <div class="panel rev-card fade-in" id="cardOverall"></div>
+      </div>
+    </div>
+
+    <div id="secFullPayment">
+      <div class="section-title"><h2>Full Payment Sales</h2><span class="sub">Orders paid in full · running total to date</span></div>
+      <div class="kpi-grid-sm" id="fullPaymentKpiGrid" style="margin-bottom:16px;"></div>
+      <div class="panel fade-in">
+        <div class="panel-head collapsible-head" onclick="toggleCollapsePanel('fullPaymentDetail')">
+          <h3>Full Payment Order Details</h3>
+          <button type="button" class="collapse-toggle" id="fullPaymentDetailToggle" aria-expanded="false" aria-controls="fullPaymentDetail">
+            <span class="toggle-label">View data</span><svg width="12" height="12" viewBox="0 0 24 24" fill="none"><path d="M6 9l6 6 6-6" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </button>
+        </div>
+        <div class="collapsible-body" id="fullPaymentDetail">
+          <div class="table-scroll" style="max-height:320px;">
+            <table>
+              <thead><tr><th>#</th><th>Date</th><th>Order</th><th>Name</th><th>Course</th><th>College</th><th style="text-align:right;">Amount</th></tr></thead>
+              <tbody id="tblFullPayment"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div id="secPhleb">
+      <div class="section-title"><h2>Phlebotomy Sales</h2><span class="sub">Part 1 &amp; Part 2 · tracked separately by count</span></div>
+      <div class="kpi-grid-sm" id="phlebKpiGrid" style="margin-bottom:16px;"></div>
+      <div class="grid-2b">
+        <div class="panel fade-in">
+          <div class="panel-head"><h3>Daily Phlebotomy Sales</h3><span class="tag">Part 1 vs Part 2</span></div>
+          <div class="chart-box" style="height:220px;"><canvas id="chartPhlebDaily"></canvas></div>
+        </div>
+        <div class="panel fade-in">
+          <div class="panel-head collapsible-head" onclick="toggleCollapsePanel('phlebDetail')">
+            <h3>Daily Phlebotomy Sales Detail</h3>
+            <button type="button" class="collapse-toggle" id="phlebDetailToggle" aria-expanded="true" aria-controls="phlebDetail">
+              <span class="toggle-label">Hide data</span><svg width="12" height="12" viewBox="0 0 24 24" fill="none"><path d="M6 9l6 6 6-6" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            </button>
+          </div>
+          <div class="collapsible-body is-open" id="phlebDetail">
+            <div class="table-scroll" style="max-height:270px;">
+              <table>
+                <thead><tr><th>Date</th><th>Orders</th><th style="text-align:right;">Part 1</th><th style="text-align:right;">Part 2</th><th style="text-align:right;">Total</th><th style="text-align:right;">Revenue</th></tr></thead>
+                <tbody id="tblPhlebDaily"></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div id="secCpd">
+      <div class="section-title"><h2>CPD Course Sales</h2><span class="sub" id="cpdSectionSub">Short course · tracked separately by count</span></div>
+      <div class="kpi-grid-sm" id="cpdKpiGrid" style="margin-bottom:16px;"></div>
+      <div class="grid-2b">
+        <div class="panel fade-in">
+          <div class="panel-head"><h3>Daily CPD Sales</h3><span class="tag">By College</span></div>
+          <div class="chart-box" style="height:220px;"><canvas id="chartCpdDaily"></canvas></div>
+        </div>
+        <div class="panel fade-in">
+          <div class="panel-head collapsible-head" onclick="toggleCollapsePanel('cpdDetail')">
+            <h3>Daily CPD Sales Detail</h3>
+            <button type="button" class="collapse-toggle" id="cpdDetailToggle" aria-expanded="true" aria-controls="cpdDetail">
+              <span class="toggle-label">Hide data</span><svg width="12" height="12" viewBox="0 0 24 24" fill="none"><path d="M6 9l6 6 6-6" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            </button>
+          </div>
+          <div class="collapsible-body is-open" id="cpdDetail">
+            <div class="table-scroll" style="max-height:270px;">
+              <table>
+                <thead><tr><th>Date</th><th style="text-align:right;">ILC</th><th style="text-align:right;">UKPDA</th><th style="text-align:right;">Total</th></tr></thead>
+                <tbody id="tblCpdDaily"></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div id="secLeads">
+      <div class="section-title"><h2>Lead Source Analysis</h2></div>
+      <div class="panel fade-in">
+        <div class="table-scroll">
+          <table>
+            <thead><tr><th>Lead Source</th><th style="text-align:right;">Students</th><th style="text-align:right;">Revenue</th><th style="text-align:right;">Avg. Sale</th><th style="text-align:right;">Share</th></tr></thead>
+            <tbody id="tblLeadAnalysis"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <div id="secAgents">
+      <div class="section-title"><h2>Sales by Agent</h2><span class="sub">Sorted by revenue</span></div>
+      <div class="panel fade-in">
+        <div class="table-scroll">
+          <table>
+            <thead><tr><th>#</th><th>Agent</th><th style="text-align:right;">Orders</th><th style="text-align:right;">Revenue</th><th style="text-align:right;">Avg. Sale</th><th style="text-align:right;">Share</th></tr></thead>
+            <tbody id="tblAgentPerf"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <div id="secMonthly">
+      <div class="section-title"><h2>Monthly Performance</h2><span class="sub">Daily breakdown</span></div>
+      <div class="panel fade-in">
+        <div class="table-scroll">
+          <table>
+            <thead><tr><th>Date</th><th style="text-align:right;">Revenue</th><th>Day</th><th style="text-align:right;">Enrollment</th></tr></thead>
+            <tbody id="tblDaily"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <div id="secCourses">
+      <div class="section-title"><h2>Course Performance</h2><span class="sub">Sorted by revenue</span></div>
+      <div class="panel fade-in">
+        <div class="table-scroll">
+          <table>
+            <thead><tr><th>#</th><th>Course</th><th style="text-align:right;">Students</th><th style="text-align:right;">Revenue</th><th style="text-align:right;">Avg. Fee</th></tr></thead>
+            <tbody id="tblCoursePerf"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <div id="secAgentDetail" style="display:none;">
+      <div class="section-title"><h2>Agent Sales Detail</h2><span class="sub" id="agentDetailSub"></span></div>
+      <div class="panel fade-in" id="agentProfileCard" style="display:flex;align-items:center;gap:16px;margin-bottom:16px;">
+        <div id="agentProfilePhotoWrap" style="width:84px;height:84px;border-radius:16px;overflow:hidden;flex-shrink:0;background:var(--panel-2);display:flex;align-items:center;justify-content:center;border:1px solid var(--card-border);">
+          <span id="agentProfileInitials" style="font-size:24px;font-weight:800;color:var(--violet-2);"></span>
+          <img id="agentProfilePhoto" src="" alt="" style="width:100%;height:100%;object-fit:cover;display:none;">
+        </div>
+        <div style="min-width:0;">
+          <div id="agentProfileName" style="font-size:17px;font-weight:800;font-family:'Plus Jakarta Sans';">—</div>
+          <div id="agentProfileStats" style="font-size:12.5px;color:var(--ink-2);margin-top:3px;">—</div>
+        </div>
+      </div>
+      <div class="panel fade-in">
+        <div class="table-scroll">
+          <table>
+            <thead><tr><th>Date</th><th>Order</th><th>Name</th><th>Phone</th><th>Lead Source</th><th>Agent</th><th>Course</th><th>College</th><th style="text-align:right;">Amount</th></tr></thead>
+            <tbody id="tblAgentDetail"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <footer>Sales Dashboard · UKPDA &amp; ILC — figures generated automatically from the Monthly Sales Record.</footer>
+  </main>
+</div>
+
+<button id="backToTopBtn" title="Back to top" aria-label="Back to top">
+  <svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M12 19V5M12 5l-6 6M12 5l6 6" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+</button>
+
+<div id="agentMgmtOverlay" class="modal-overlay">
+  <div class="modal-card">
+    <div class="modal-head">
+      <h3>Manage Agents</h3>
+      <button id="agentMgmtCloseBtn" class="modal-close" aria-label="Close">&times;</button>
+    </div>
+    <div class="modal-body">
+      <p class="modal-hint">Add a new agent, upload their photo, and set whether they sell CPD or Phlebotomy courses. New agents are automatically included everywhere in the dashboard — filters, tables, and reports — just like existing ones.</p>
+      <div class="add-agent-row">
+        <input type="text" id="newAgentNameInput" placeholder="New agent name…">
+        <button id="addAgentBtn" class="btn btn-violet">Add Agent</button>
+      </div>
+      <div id="agentMgmtList"></div>
+    </div>
+  </div>
+</div>
+
+
+
+
+
+
+
+
+<script src="script.js"></script>
+</body>
+</html>
