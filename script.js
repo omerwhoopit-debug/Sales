@@ -1,7 +1,7 @@
 let RAW_DATA = [];
 
 // ---------------- Live data sync (Google Sheet via Apps Script) ----------------
-const SHEET_API_URL = "https://script.google.com/macros/s/AKfycbzMNsgB9AjtNBXBmANcAMDIJn70M4zDwaYTdLRLpkwJ6dLfwLMwflsulDY1X2ux0JMo0A/exec";
+const SHEET_API_URL = window.SHEET_API_URL || "https://script.google.com/macros/s/AKfycbzMNsgB9AjtNBXBmANcAMDIJn70M4zDwaYTdLRLpkwJ6dLfwLMwflsulDY1X2ux0JMo0A/exec";
 const REFRESH_INTERVAL_MS = 60000; // auto-refresh every 60 seconds
 let _hasLoadedOnce = false;
 
@@ -1475,7 +1475,15 @@ function init(){
   applyThemeColors(savedDark);
 
   document.getElementById('sbSyncInfo').textContent = 'Loading live data…';
-  loadData();
+  if (window.INITIAL_DATA && Array.isArray(window.INITIAL_DATA.sales) && window.INITIAL_DATA.sales.length > 0) {
+    RAW_DATA = window.INITIAL_DATA.sales;
+    CPD_DATA = Array.isArray(window.INITIAL_DATA.cpd) ? window.INITIAL_DATA.cpd : [];
+    PHLEB_DATA = Array.isArray(window.INITIAL_DATA.phleb) ? window.INITIAL_DATA.phleb : [];
+    _hasLoadedOnce = true;
+    finishInit();
+  } else {
+    loadData();
+  }
   setInterval(loadData, REFRESH_INTERVAL_MS);
 }
 
