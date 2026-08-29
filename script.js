@@ -425,6 +425,18 @@ function initFilters(){
     render();
   });
   document.getElementById('resetBtn').addEventListener('click', resetFilters);
+  const topReset = document.getElementById('topResetFiltersBtn');
+  if(topReset) topReset.addEventListener('click', resetFilters);
+
+  const topAgents = document.getElementById('topManageAgentsBtn');
+  if(topAgents){
+    topAgents.addEventListener('click', ()=>{
+      const overlay = document.getElementById('agentMgmtOverlay');
+      if(overlay) overlay.classList.add('open');
+      renderAgentManagement();
+    });
+  }
+
   document.getElementById('exportBtn').addEventListener('click', exportCsv);
   document.getElementById('themeToggleBtn').addEventListener('click', toggleTheme);
   document.getElementById('navTheme').addEventListener('click', toggleTheme);

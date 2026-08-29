@@ -227,7 +227,23 @@ a{color:inherit;text-decoration:none;}
 .filter-toggle:hover{background:var(--card-hover);border-color:rgba(139,92,246,.45);color:var(--ink);transform:translateY(-1px);}
 .filter-toggle .filter-chevron{transition:transform .2s ease;}
 .sticky-header:not(.filter-collapsed) .filter-toggle .filter-chevron{transform:rotate(180deg);}
-.topbar{display:flex;align-items:center;gap:12px;margin-bottom:8px;transition:margin .2s ease;}
+.topbar-btn{
+  background:var(--card);
+  border:1px solid var(--card-border);
+  color:var(--ink-2);
+}
+.topbar-btn:hover{
+  background:rgba(139,92,246,.15);
+  border-color:var(--violet);
+  color:var(--ink);
+  transform:translateY(-1px);
+}
+.topbar-reset-btn:hover{
+  background:rgba(248,113,113,.14) !important;
+  border-color:rgba(248,113,113,.4) !important;
+  color:var(--red) !important;
+}
+.topbar{display:flex;align-items:center;gap:10px;margin-bottom:8px;transition:margin .2s ease;}
 .search-box{
   flex:1;max-width:390px;display:flex;align-items:center;gap:9px;
   background:var(--card);border:1px solid var(--card-border);border-radius:13px;padding:10px 14px;
