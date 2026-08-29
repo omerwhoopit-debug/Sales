@@ -1459,131 +1459,144 @@ function setTheme(dark){
 function toggleTheme(){ setTheme(!isDarkTheme); }
 
 function setupAuth(){
-  const overlay = document.getElementById('loginOverlay');
-  const form = document.getElementById('loginForm');
-  const userInput = document.getElementById('loginUsername');
-  const passInput = document.getElementById('loginPassword');
-  const toggleBtn = document.getElementById('loginTogglePassword');
-  const eyeOpen = document.getElementById('eyeIconOpen');
-  const eyeClosed = document.getElementById('eyeIconClosed');
-  const errorMsg = document.getElementById('loginErrorMsg');
-  const errorText = document.getElementById('loginErrorText');
-  const card = document.querySelector('.login-card');
-  const submitBtn = document.getElementById('loginSubmitBtn');
-  const btnText = submitBtn ? submitBtn.querySelector('.btn-text') : null;
-  const btnArrow = submitBtn ? submitBtn.querySelector('.btn-arrow') : null;
-  const spinner = document.getElementById('loginSpinner');
-  const rememberCheck = document.getElementById('loginRemember');
+  const overlay     = document.getElementById('loginOverlay');
+  const bg          = document.getElementById('bg');
+  const card        = document.getElementById('loginCard');
+  const form        = document.getElementById('loginForm');
+  const usernameEl  = document.getElementById('username');
+  const passwordEl  = document.getElementById('password');
+  const rememberEl  = document.getElementById('rememberMe');
+  const signInBtn   = document.getElementById('signInBtn');
+  const errorBanner = document.getElementById('errorBanner');
+  const errorText   = document.getElementById('errorText');
+  const toggleVis   = document.getElementById('toggleVis');
+  const eyeIcon     = document.getElementById('eyeIcon');
+  const charBubble  = document.querySelector('.char-bubble');
 
-  // Check existing session
-  let isAuthed = false;
-  try {
-    isAuthed = sessionStorage.getItem('dashboardAuth') === 'true' || localStorage.getItem('dashboardAuth') === 'true';
-    const savedUser = localStorage.getItem('dashboardUser') || sessionStorage.getItem('dashboardUser');
-    if(savedUser){
-      const topUser = document.getElementById('topNavUserName');
-      const dropUser = document.getElementById('dropdownUserName');
-      if(topUser) topUser.textContent = savedUser.charAt(0).toUpperCase() + savedUser.slice(1);
-      if(dropUser) dropUser.textContent = savedUser.charAt(0).toUpperCase() + savedUser.slice(1) + ' (Admin)';
-    }
-  } catch(e){}
+  const EYE_OPEN  = '<path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7-11-7-11-7z"/><circle cx="12" cy="12" r="3"/>';
+  const EYE_SLASH = '<path d="M17.94 17.94A10.94 10.94 0 0 1 12 19c-7 0-11-7-11-7a21.6 21.6 0 0 1 5.06-5.94M9.9 4.24A10.94 10.94 0 0 1 12 4c7 0 11 7 11 7a21.6 21.6 0 0 1-2.61 3.68M14.12 14.12a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/>';
 
-  if(overlay){
-    if(isAuthed){
-      overlay.classList.add('hidden');
-    } else {
-      overlay.classList.remove('hidden', 'logging-out');
-    }
-  }
+  const STORAGE_KEY = 'ukpda_ilc_auth';
 
-  // Toggle password visibility
-  if(toggleBtn && passInput){
-    toggleBtn.addEventListener('click', function(e){
+  if (toggleVis && passwordEl && eyeIcon){
+    toggleVis.addEventListener('click', function(e){
       e.preventDefault();
-      const isPass = passInput.type === 'password';
-      passInput.type = isPass ? 'text' : 'password';
-      if(eyeOpen && eyeClosed){
-        eyeOpen.style.display = isPass ? 'none' : 'block';
-        eyeClosed.style.display = isPass ? 'block' : 'none';
-      }
+      const showing = passwordEl.type === 'text';
+      passwordEl.type = showing ? 'password' : 'text';
+      eyeIcon.innerHTML = showing ? EYE_OPEN : EYE_SLASH;
+      toggleVis.setAttribute('aria-label', showing ? 'Show password' : 'Hide password');
     });
   }
 
-  // Handle submit
-  if(form){
+  function showError(msg){
+    if (errorText) errorText.textContent = msg;
+    if (errorBanner) errorBanner.classList.add('show');
+    if (card){
+      card.classList.remove('shake');
+      void card.offsetWidth;
+      card.classList.add('shake');
+    }
+  }
+
+  function clearError(){
+    if (errorBanner) errorBanner.classList.remove('show');
+  }
+
+  function enterDashboard(){
+    if (overlay){
+      overlay.classList.add('hide');
+      setTimeout(function(){ overlay.style.display = 'none'; }, 700);
+    }
+    if (bg){
+      bg.classList.add('hide');
+      setTimeout(function(){ bg.style.display = 'none'; }, 700);
+    }
+  }
+
+  function checkExistingSession(){
+    let saved = false;
+    try {
+      saved = localStorage.getItem(STORAGE_KEY) === 'true' || sessionStorage.getItem(STORAGE_KEY) === 'true';
+      const savedUser = localStorage.getItem('dashboardUser') || sessionStorage.getItem('dashboardUser');
+      if (savedUser){
+        const topUser = document.getElementById('topNavUserName');
+        const dropUser = document.getElementById('dropdownUserName');
+        if (topUser) topUser.textContent = savedUser.charAt(0).toUpperCase() + savedUser.slice(1);
+        if (dropUser) dropUser.textContent = savedUser.charAt(0).toUpperCase() + savedUser.slice(1) + ' (Admin)';
+      }
+    } catch(e){}
+
+    if (saved) {
+      if (overlay) overlay.style.display = 'none';
+      if (bg) bg.style.display = 'none';
+    }
+  }
+
+  if (form){
     form.addEventListener('submit', function(e){
       e.preventDefault();
-      const u = (userInput ? userInput.value : '').trim();
-      const p = (passInput ? passInput.value : '').trim();
+      clearError();
+
+      const user = usernameEl ? usernameEl.value.trim() : '';
+      const pass = passwordEl ? passwordEl.value : '';
       const expectedPass = window.AUTH_PASSWORD || 'admin';
       const expectedUser = window.AUTH_USERNAME || 'admin';
 
-      // Verify credentials (case-insensitive username)
-      const validUser = (u.toLowerCase() === expectedUser.toLowerCase()) || (u.toLowerCase() === 'admin');
-      const validPass = (p === expectedPass) || (p === 'admin');
+      const validUser = (user.toLowerCase() === expectedUser.toLowerCase()) || (user.toLowerCase() === 'admin');
+      const validPass = (pass === expectedPass) || (pass === 'admin');
 
-      if(validUser && validPass){
-        // Success state
-        if(errorMsg) errorMsg.style.display = 'none';
-        if(btnText) btnText.textContent = 'Authenticating…';
-        if(btnArrow) btnArrow.style.display = 'none';
-        if(spinner) spinner.style.display = 'inline-block';
-        if(submitBtn) submitBtn.disabled = true;
+      if (signInBtn){
+        signInBtn.classList.add('loading');
+        signInBtn.disabled = true;
+      }
 
-        const remember = rememberCheck ? rememberCheck.checked : false;
-        try {
-          if(remember){
-            localStorage.setItem('dashboardAuth', 'true');
-            localStorage.setItem('dashboardUser', u);
-          } else {
-            sessionStorage.setItem('dashboardAuth', 'true');
-            sessionStorage.setItem('dashboardUser', u);
+      setTimeout(function(){
+        if (!validUser || !validPass){
+          if (signInBtn){
+            signInBtn.classList.remove('loading');
+            signInBtn.disabled = false;
           }
-        } catch(err){}
+          showError(!validUser ? 'Username not recognized.' : 'Invalid password.');
+          return;
+        }
+
+        if (signInBtn){
+          signInBtn.classList.add('success');
+          const btnText = signInBtn.querySelector('.btn-text');
+          if (btnText){
+            btnText.textContent = 'Success!';
+            btnText.style.display = 'inline';
+          }
+          signInBtn.classList.remove('loading');
+        }
+
+        const remember = rememberEl ? rememberEl.checked : true;
+        try {
+          if (remember){
+            localStorage.setItem(STORAGE_KEY, 'true');
+            localStorage.setItem('dashboardUser', user);
+          } else {
+            sessionStorage.setItem(STORAGE_KEY, 'true');
+            sessionStorage.setItem('dashboardUser', user);
+          }
+        } catch(e){}
 
         const topUser = document.getElementById('topNavUserName');
         const dropUser = document.getElementById('dropdownUserName');
-        if(topUser) topUser.textContent = u.charAt(0).toUpperCase() + u.slice(1);
-        if(dropUser) dropUser.textContent = u.charAt(0).toUpperCase() + u.slice(1) + ' (Admin)';
+        if (topUser) topUser.textContent = user.charAt(0).toUpperCase() + user.slice(1);
+        if (dropUser) dropUser.textContent = user.charAt(0).toUpperCase() + user.slice(1) + ' (Admin)';
 
-        setTimeout(() => {
-          if(overlay){
-            overlay.classList.add('logging-out');
-            setTimeout(() => {
-              overlay.classList.add('hidden');
-              if(btnText) btnText.textContent = 'Sign In to Dashboard';
-              if(btnArrow) btnArrow.style.display = 'inline-block';
-              if(spinner) spinner.style.display = 'none';
-              if(submitBtn) submitBtn.disabled = false;
-            }, 550);
-          }
-        }, 600);
-
-      } else {
-        // Error state
-        if(errorMsg){
-          errorText.textContent = !validUser ? 'Username not recognized' : 'Incorrect password';
-          errorMsg.style.display = 'flex';
-        }
-        if(card){
-          card.classList.remove('shake');
-          void card.offsetWidth;
-          card.classList.add('shake');
-        }
-        if(passInput){
-          passInput.focus();
-          passInput.select();
-        }
-      }
+        setTimeout(enterDashboard, 500);
+      }, 600);
     });
   }
 
-  // Setup user menu & sign out
+  // User menu & sign out
   const userChip = document.getElementById('userChipBtn');
   const userDropdown = document.getElementById('userDropdownMenu');
   const signOutBtn = document.getElementById('udmSignOutBtn');
 
-  if(userChip && userDropdown){
+  if (userChip && userDropdown){
     userChip.addEventListener('click', function(e){
       e.stopPropagation();
       const isShown = userDropdown.style.display === 'block';
@@ -1591,32 +1604,52 @@ function setupAuth(){
     });
 
     document.addEventListener('click', function(e){
-      if(!userChip.contains(e.target) && !userDropdown.contains(e.target)){
+      if (!userChip.contains(e.target) && !userDropdown.contains(e.target)){
         userDropdown.style.display = 'none';
       }
     });
   }
 
-  if(signOutBtn){
-    signOutBtn.addEventListener('click', function(){
+  if (signOutBtn){
+    signOutBtn.addEventListener('click', function(e){
+      e.stopPropagation();
       try {
-        localStorage.removeItem('dashboardAuth');
+        localStorage.removeItem(STORAGE_KEY);
         localStorage.removeItem('dashboardUser');
-        sessionStorage.removeItem('dashboardAuth');
+        sessionStorage.removeItem(STORAGE_KEY);
         sessionStorage.removeItem('dashboardUser');
       } catch(e){}
 
-      if(userDropdown) userDropdown.style.display = 'none';
-      if(passInput) passInput.value = '';
-      if(errorMsg) errorMsg.style.display = 'none';
+      if (userDropdown) userDropdown.style.display = 'none';
+      if (usernameEl) usernameEl.value = '';
+      if (passwordEl) passwordEl.value = '';
+      if (signInBtn){
+        signInBtn.classList.remove('success', 'loading');
+        signInBtn.disabled = false;
+        const btnText = signInBtn.querySelector('.btn-text');
+        if (btnText) btnText.textContent = 'Sign In';
+      }
+      clearError();
 
-      if(overlay){
-        overlay.classList.remove('hidden');
+      if (bg){
+        bg.style.display = 'block';
+        bg.classList.remove('hide');
+      }
+      if (overlay){
+        overlay.style.display = 'flex';
         void overlay.offsetWidth;
-        overlay.classList.remove('logging-out');
+        overlay.classList.remove('hide');
       }
     });
   }
+
+  if (charBubble){
+    charBubble.style.opacity = '0';
+    charBubble.style.transition = 'opacity 0.5s ease';
+    setTimeout(function(){ charBubble.style.opacity = '1'; }, 900);
+  }
+
+  checkExistingSession();
 }
 
 function init(){
