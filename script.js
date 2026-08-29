@@ -1458,7 +1458,169 @@ function setTheme(dark){
 }
 function toggleTheme(){ setTheme(!isDarkTheme); }
 
+function setupAuth(){
+  const overlay = document.getElementById('loginOverlay');
+  const form = document.getElementById('loginForm');
+  const userInput = document.getElementById('loginUsername');
+  const passInput = document.getElementById('loginPassword');
+  const toggleBtn = document.getElementById('loginTogglePassword');
+  const eyeOpen = document.getElementById('eyeIconOpen');
+  const eyeClosed = document.getElementById('eyeIconClosed');
+  const errorMsg = document.getElementById('loginErrorMsg');
+  const errorText = document.getElementById('loginErrorText');
+  const card = document.querySelector('.login-card');
+  const submitBtn = document.getElementById('loginSubmitBtn');
+  const btnText = submitBtn ? submitBtn.querySelector('.btn-text') : null;
+  const btnArrow = submitBtn ? submitBtn.querySelector('.btn-arrow') : null;
+  const spinner = document.getElementById('loginSpinner');
+  const rememberCheck = document.getElementById('loginRemember');
+
+  // Check existing session
+  let isAuthed = false;
+  try {
+    isAuthed = sessionStorage.getItem('dashboardAuth') === 'true' || localStorage.getItem('dashboardAuth') === 'true';
+    const savedUser = localStorage.getItem('dashboardUser') || sessionStorage.getItem('dashboardUser');
+    if(savedUser){
+      const topUser = document.getElementById('topNavUserName');
+      const dropUser = document.getElementById('dropdownUserName');
+      if(topUser) topUser.textContent = savedUser.charAt(0).toUpperCase() + savedUser.slice(1);
+      if(dropUser) dropUser.textContent = savedUser.charAt(0).toUpperCase() + savedUser.slice(1) + ' (Admin)';
+    }
+  } catch(e){}
+
+  if(overlay){
+    if(isAuthed){
+      overlay.classList.add('hidden');
+    } else {
+      overlay.classList.remove('hidden', 'logging-out');
+    }
+  }
+
+  // Toggle password visibility
+  if(toggleBtn && passInput){
+    toggleBtn.addEventListener('click', function(e){
+      e.preventDefault();
+      const isPass = passInput.type === 'password';
+      passInput.type = isPass ? 'text' : 'password';
+      if(eyeOpen && eyeClosed){
+        eyeOpen.style.display = isPass ? 'none' : 'block';
+        eyeClosed.style.display = isPass ? 'block' : 'none';
+      }
+    });
+  }
+
+  // Handle submit
+  if(form){
+    form.addEventListener('submit', function(e){
+      e.preventDefault();
+      const u = (userInput ? userInput.value : '').trim();
+      const p = (passInput ? passInput.value : '').trim();
+      const expectedPass = window.AUTH_PASSWORD || 'admin';
+      const expectedUser = window.AUTH_USERNAME || 'admin';
+
+      // Verify credentials (case-insensitive username)
+      const validUser = (u.toLowerCase() === expectedUser.toLowerCase()) || (u.toLowerCase() === 'admin');
+      const validPass = (p === expectedPass) || (p === 'admin');
+
+      if(validUser && validPass){
+        // Success state
+        if(errorMsg) errorMsg.style.display = 'none';
+        if(btnText) btnText.textContent = 'Authenticating…';
+        if(btnArrow) btnArrow.style.display = 'none';
+        if(spinner) spinner.style.display = 'inline-block';
+        if(submitBtn) submitBtn.disabled = true;
+
+        const remember = rememberCheck ? rememberCheck.checked : false;
+        try {
+          if(remember){
+            localStorage.setItem('dashboardAuth', 'true');
+            localStorage.setItem('dashboardUser', u);
+          } else {
+            sessionStorage.setItem('dashboardAuth', 'true');
+            sessionStorage.setItem('dashboardUser', u);
+          }
+        } catch(err){}
+
+        const topUser = document.getElementById('topNavUserName');
+        const dropUser = document.getElementById('dropdownUserName');
+        if(topUser) topUser.textContent = u.charAt(0).toUpperCase() + u.slice(1);
+        if(dropUser) dropUser.textContent = u.charAt(0).toUpperCase() + u.slice(1) + ' (Admin)';
+
+        setTimeout(() => {
+          if(overlay){
+            overlay.classList.add('logging-out');
+            setTimeout(() => {
+              overlay.classList.add('hidden');
+              if(btnText) btnText.textContent = 'Sign In to Dashboard';
+              if(btnArrow) btnArrow.style.display = 'inline-block';
+              if(spinner) spinner.style.display = 'none';
+              if(submitBtn) submitBtn.disabled = false;
+            }, 550);
+          }
+        }, 600);
+
+      } else {
+        // Error state
+        if(errorMsg){
+          errorText.textContent = !validUser ? 'Username not recognized' : 'Incorrect password';
+          errorMsg.style.display = 'flex';
+        }
+        if(card){
+          card.classList.remove('shake');
+          void card.offsetWidth;
+          card.classList.add('shake');
+        }
+        if(passInput){
+          passInput.focus();
+          passInput.select();
+        }
+      }
+    });
+  }
+
+  // Setup user menu & sign out
+  const userChip = document.getElementById('userChipBtn');
+  const userDropdown = document.getElementById('userDropdownMenu');
+  const signOutBtn = document.getElementById('udmSignOutBtn');
+
+  if(userChip && userDropdown){
+    userChip.addEventListener('click', function(e){
+      e.stopPropagation();
+      const isShown = userDropdown.style.display === 'block';
+      userDropdown.style.display = isShown ? 'none' : 'block';
+    });
+
+    document.addEventListener('click', function(e){
+      if(!userChip.contains(e.target) && !userDropdown.contains(e.target)){
+        userDropdown.style.display = 'none';
+      }
+    });
+  }
+
+  if(signOutBtn){
+    signOutBtn.addEventListener('click', function(){
+      try {
+        localStorage.removeItem('dashboardAuth');
+        localStorage.removeItem('dashboardUser');
+        sessionStorage.removeItem('dashboardAuth');
+        sessionStorage.removeItem('dashboardUser');
+      } catch(e){}
+
+      if(userDropdown) userDropdown.style.display = 'none';
+      if(passInput) passInput.value = '';
+      if(errorMsg) errorMsg.style.display = 'none';
+
+      if(overlay){
+        overlay.classList.remove('hidden');
+        void overlay.offsetWidth;
+        overlay.classList.remove('logging-out');
+      }
+    });
+  }
+}
+
 function init(){
+  setupAuth();
   setupSidebarNav();
   setupFilterToggle();
   setupScrollShrink();

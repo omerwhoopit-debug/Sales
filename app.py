@@ -76,6 +76,8 @@ def get_secret(key, default=""):
 
 SHEET_API_URL = get_secret("SHEET_API_URL", DEFAULT_API_URL)
 SECURITY_TOKEN = get_secret("SECURITY_TOKEN", "")
+AUTH_USERNAME = get_secret("AUTH_USERNAME", "admin")
+AUTH_PASSWORD = get_secret("AUTH_PASSWORD", "admin")
 
 # Server-side caching for 60 seconds (prevents slow Google Apps Script cold starts)
 @st.cache_data(ttl=60, show_spinner=False)
@@ -94,7 +96,7 @@ def fetch_cached_payload(api_url, token=""):
     return None
 
 # -----------------------------------------------------------------------------
-# 4. Bundled HTML Generation with Pre-loaded Initial Data
+# 4. Bundled HTML Generation with Pre-loaded Initial Data & Auth Config
 # -----------------------------------------------------------------------------
 def build_bundled_dashboard():
     if not os.path.exists("index.html"):
@@ -133,10 +135,12 @@ def build_bundled_dashboard():
     <script>
         window.INITIAL_DATA = {initial_data_json};
         window.SHEET_API_URL = "{SHEET_API_URL}";
+        window.AUTH_USERNAME = "{AUTH_USERNAME}";
+        window.AUTH_PASSWORD = "{AUTH_PASSWORD}";
     </script>
     """
 
-    # 4. Inline JavaScript with pre-loaded initial data
+    # 4. Inline JavaScript with pre-loaded initial data & auth
     if os.path.exists("script.js"):
         with open("script.js", "r", encoding="utf-8") as f:
             js_content = f.read()
