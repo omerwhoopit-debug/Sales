@@ -249,15 +249,22 @@ function doGet(e) {
       if (cpdSalesIdx >= 0) {
         var cpdDateIdx = cpdSalesIdx - 1;
         var cpdCollegeIdx = cpdSalesIdx + 1;
+        var seenCpdInTab = {};
         for (var r1 = 1; r1 < data.length; r1++) {
           var row1 = data[r1];
           var cpdDateVal = row1[cpdDateIdx];
           var cpdCount = row1[cpdSalesIdx];
           var cpdCollege = row1[cpdCollegeIdx];
           if (!cpdDateVal && (cpdCount === "" || cpdCount === null || cpdCount === undefined)) continue;
+          var cpdDateStr = parseRowDate(cpdDateVal, tabMonthIdx, year);
+          var cpdCollegeStr = String(cpdCollege || "").trim();
+          var cpdKey = cpdDateStr + "|" + cpdCollegeStr;
+          if (seenCpdInTab[cpdKey]) continue;
+          seenCpdInTab[cpdKey] = true;
+
           cpdRows.push({
-            date: parseRowDate(cpdDateVal, tabMonthIdx, year),
-            college: String(cpdCollege || "").trim(),
+            date: cpdDateStr,
+            college: cpdCollegeStr,
             count: Number(cpdCount) || 0
           });
         }

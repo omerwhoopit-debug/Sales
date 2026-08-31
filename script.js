@@ -24,6 +24,21 @@ function sanitizeAndDeduplicateSales(rows) {
   return clean;
 }
 
+function sanitizeAndDeduplicateCpd(rows) {
+  if (!Array.isArray(rows)) return [];
+  const seen = new Set();
+  const clean = [];
+  for (const r of rows) {
+    if (!r || !r.date) continue;
+    const key = (r.date || '').trim() + '|' + (r.college || '').trim();
+    if (!seen.has(key)) {
+      seen.add(key);
+      clean.push(r);
+    }
+  }
+  return clean;
+}
+
 // ---------------- Live data sync (Google Sheet via Apps Script) ----------------
 const SHEET_API_URL = window.SHEET_API_URL || "https://script.google.com/macros/s/AKfycbzMNsgB9AjtNBXBmANcAMDIJn70M4zDwaYTdLRLpkwJ6dLfwLMwflsulDY1X2ux0JMo0A/exec";
 const REFRESH_INTERVAL_MS = 60000; // auto-refresh every 60 seconds
@@ -44,7 +59,7 @@ async function loadData(){
       try{
         if(!data || !Array.isArray(data.sales)) throw new Error('Unexpected response shape');
         RAW_DATA = sanitizeAndDeduplicateSales(data.sales);
-        CPD_DATA = Array.isArray(data.cpd) ? data.cpd : [];
+        CPD_DATA = sanitizeAndDeduplicateCpd(Array.isArray(data.cpd) ? data.cpd : []);
         PHLEB_DATA = Array.isArray(data.phleb) ? data.phleb : [];
 
         if(!_hasLoadedOnce){
@@ -543,8 +558,8 @@ function applyFilters(){
 
 /* ---------------- Core aggregations ---------------- */
 function computeStats(rawData){
-  // All sales recorded in the main table (Qualifications, Phlebotomy, etc.) are included in core totals.
-  const data = rawData;
+  // Qualification revenue & sales exclude Phlebotomy (which has its own dedicated KPI card and breakdown section)
+  const data = rawData.filter(r=> !r.course.toLowerCase().includes('phlebotomy'));
   const totalRevenue = sum(data, r=>r.amount);
   const totalOrders = data.length;
   const totalStudents = totalOrders;
@@ -666,13 +681,13 @@ function renderTopKpis(stats, cpd, ph, revChange){
   grid.innerHTML =
     '<div class="kpi-card fade-in"><div class="glow" style="background:'+(swapToPhleb?COLORS.pink:COLORS.violet)+';"></div>'+
       '<div class="kpi-top-row"><div class="kpi-icon" style="background:'+(swapToPhleb?'rgba(236,72,153,.18)':'rgba(139,92,246,.18)')+';color:'+(swapToPhleb?COLORS.pink:COLORS.violet2)+';">'+(swapToPhleb?ICONS.phleb:ICONS.revenue)+'</div>'+(swapToPhleb?'':trendBadge(revChange))+'</div>'+
-      '<div class="kpi-label">'+(swapToPhleb?'Total Phlebotomy Revenue':'Total Revenue')+'</div>'+
+      '<div class="kpi-label">'+(swapToPhleb?'Total Phlebotomy Revenue':'Total Qualification Revenue')+'</div>'+
       '<div class="kpi-value num"><span style="font-size:16px;color:var(--ink-2);">£</span><span id="cntTopRevenue">0</span></div>'+
       '<canvas class="kpi-spark" id="sparkTopRevenue"></canvas>'+
     '</div>'+
     '<div class="kpi-card fade-in"><div class="glow" style="background:'+(swapToPhleb?COLORS.pink:COLORS.teal)+';"></div>'+
       '<div class="kpi-top-row"><div class="kpi-icon" style="background:'+(swapToPhleb?'rgba(236,72,153,.18)':'rgba(45,212,191,.18)')+';color:'+(swapToPhleb?COLORS.pink:COLORS.teal)+';">'+(swapToPhleb?ICONS.phleb:ICONS.sales)+'</div></div>'+
-      '<div class="kpi-label">'+(swapToPhleb?'Total Phlebotomy Sales':'Total Sales')+'</div>'+
+      '<div class="kpi-label">'+(swapToPhleb?'Total Phlebotomy Sales':'Total Qualification Sales')+'</div>'+
       '<div class="kpi-value num" id="cntTopStudents">0</div>'+
       '<div style="font-size:11px;color:var(--ink-2);margin-top:4px;">'+(swapToPhleb?('Part 1: '+fmtNum(ph.totalP1)+' · Part 2: '+fmtNum(ph.totalP2)):('Across '+fmtNum(stats.dailyAgg.length)+' days this period'))+'</div>'+
     '</div>'+
@@ -1720,7 +1735,7 @@ function init(){
   document.getElementById('sbSyncInfo').textContent = 'Loading live data…';
   if (window.INITIAL_DATA && Array.isArray(window.INITIAL_DATA.sales) && window.INITIAL_DATA.sales.length > 0) {
     RAW_DATA = sanitizeAndDeduplicateSales(window.INITIAL_DATA.sales);
-    CPD_DATA = Array.isArray(window.INITIAL_DATA.cpd) ? window.INITIAL_DATA.cpd : [];
+    CPD_DATA = sanitizeAndDeduplicateCpd(Array.isArray(window.INITIAL_DATA.cpd) ? window.INITIAL_DATA.cpd : []);
     PHLEB_DATA = Array.isArray(window.INITIAL_DATA.phleb) ? window.INITIAL_DATA.phleb : [];
     _hasLoadedOnce = true;
     finishInit();
