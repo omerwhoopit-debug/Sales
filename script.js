@@ -1,5 +1,29 @@
 let RAW_DATA = [];
 
+function sanitizeAndDeduplicateSales(rows) {
+  if (!Array.isArray(rows)) return [];
+  const seen = new Set();
+  const clean = [];
+  for (const r of rows) {
+    if (!r) continue;
+    const orderId = (r.order || '').trim();
+    const date = (r.date || '').trim();
+    const name = (r.name || '').trim().toLowerCase();
+    const amt = Number(r.amount) || 0;
+    const course = (r.course || '').trim().toLowerCase();
+    
+    const key = (orderId && orderId !== '#')
+      ? (orderId + '|' + date + '|' + amt + '|' + course)
+      : (date + '|' + name + '|' + amt + '|' + course);
+      
+    if (!seen.has(key)) {
+      seen.add(key);
+      clean.push(r);
+    }
+  }
+  return clean;
+}
+
 // ---------------- Live data sync (Google Sheet via Apps Script) ----------------
 const SHEET_API_URL = window.SHEET_API_URL || "https://script.google.com/macros/s/AKfycbzMNsgB9AjtNBXBmANcAMDIJn70M4zDwaYTdLRLpkwJ6dLfwLMwflsulDY1X2ux0JMo0A/exec";
 const REFRESH_INTERVAL_MS = 60000; // auto-refresh every 60 seconds
@@ -19,7 +43,7 @@ async function loadData(){
       settled = true;
       try{
         if(!data || !Array.isArray(data.sales)) throw new Error('Unexpected response shape');
-        RAW_DATA = data.sales;
+        RAW_DATA = sanitizeAndDeduplicateSales(data.sales);
         CPD_DATA = Array.isArray(data.cpd) ? data.cpd : [];
         PHLEB_DATA = Array.isArray(data.phleb) ? data.phleb : [];
 
@@ -1695,7 +1719,7 @@ function init(){
 
   document.getElementById('sbSyncInfo').textContent = 'Loading live data…';
   if (window.INITIAL_DATA && Array.isArray(window.INITIAL_DATA.sales) && window.INITIAL_DATA.sales.length > 0) {
-    RAW_DATA = window.INITIAL_DATA.sales;
+    RAW_DATA = sanitizeAndDeduplicateSales(window.INITIAL_DATA.sales);
     CPD_DATA = Array.isArray(window.INITIAL_DATA.cpd) ? window.INITIAL_DATA.cpd : [];
     PHLEB_DATA = Array.isArray(window.INITIAL_DATA.phleb) ? window.INITIAL_DATA.phleb : [];
     _hasLoadedOnce = true;

@@ -195,6 +195,8 @@ function doGet(e) {
         amount:  findCol(header11, ["amount"])
       };
 
+      var seenOrdersInTab = {};
+
       for (var i = 1; i < data.length; i++) {
         var row = data[i];
         var slice = row.slice(0, 11);
@@ -203,6 +205,9 @@ function doGet(e) {
 
         var rawDate = col.date >= 0 ? row[col.date] : "";
         var dateStr = parseRowDate(rawDate, tabMonthIdx, year);
+        var orderStr = col.order >= 0 ? String(row[col.order] || "").trim() : "";
+        var nameStr = col.name >= 0 ? String(row[col.name] || "").trim() : "";
+        var courseStr = col.course >= 0 ? String(row[col.course] || "").trim() : "";
         var typeVal = col.type >= 0 ? String(row[col.type] || "").trim() : "";
         var amt = col.amount >= 0 ? parseAmount(row[col.amount]) : 0;
         var leadVal = col.lead >= 0 ? String(row[col.lead] || "").trim() : "";
@@ -212,15 +217,23 @@ function doGet(e) {
           agentVal = "Direct Sale";
         }
 
+        // Deduplication key: prevent copy-pasted duplicate blocks
+        var dupKey = (orderStr && orderStr !== "#")
+          ? (orderStr + "|" + dateStr + "|" + amt + "|" + courseStr.toLowerCase())
+          : (dateStr + "|" + nameStr.toLowerCase() + "|" + amt + "|" + courseStr.toLowerCase());
+
+        if (seenOrdersInTab[dupKey]) continue;
+        seenOrdersInTab[dupKey] = true;
+
         allRows.push({
           sr: srCounter++,
           date: dateStr,
-          order: col.order >= 0 ? String(row[col.order] || "").trim() : "",
-          name: col.name >= 0 ? String(row[col.name] || "").trim() : "",
+          order: orderStr,
+          name: nameStr,
           phone: col.phone >= 0 ? String(row[col.phone] || "").trim() : "",
           lead: leadVal,
           agent: agentVal,
-          course: col.course >= 0 ? String(row[col.course] || "").trim() : "",
+          course: courseStr,
           college: col.college >= 0 ? String(row[col.college] || "").trim() : "",
           type: typeVal,
           fp: /full/i.test(typeVal),
