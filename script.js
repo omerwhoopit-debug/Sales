@@ -94,7 +94,7 @@ async function loadData(){
 
     const sep = SHEET_API_URL.includes('?') ? '&' : '?';
     const scriptEl = document.createElement('script');
-    scriptEl.src = SHEET_API_URL + sep + 'callback=' + callbackName + '&t=' + Date.now();
+    scriptEl.src = SHEET_API_URL + sep + 'callback=' + callbackName + '&nocache=1&t=' + Date.now();
     scriptEl.onerror = function(){
       if(settled) return;
       console.error('Live data sync failed: could not load script');

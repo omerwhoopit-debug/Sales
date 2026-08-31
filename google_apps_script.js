@@ -22,8 +22,8 @@
 // Leave empty ("") to disable token verification.
 var SECURITY_TOKEN = ""; 
 
-// Cache duration in seconds (e.g., 900 = 15 minutes)
-var CACHE_TTL_SECONDS = 900;
+// Cache duration in seconds (0 = disabled, always fetch live data from Google Sheet)
+var CACHE_TTL_SECONDS = 0;
 
 function doGet(e) {
   try {
@@ -35,12 +35,12 @@ function doGet(e) {
       }
     }
 
-    // 2. Check CacheService unless nocache parameter is passed
-    var noCache = e && e.parameter && (e.parameter.nocache === "1" || e.parameter.nocache === "true");
+    // 2. Live fresh data by default (unless explicit positive cache TTL configured)
+    var isNoCache = !e || !e.parameter || e.parameter.nocache === "1" || e.parameter.nocache === "true" || e.parameter.t || e.parameter._t;
     var cache = CacheService.getScriptCache();
-    var cacheKey = "SALES_DASHBOARD_PAYLOAD_V2";
+    var cacheKey = "SALES_DASHBOARD_PAYLOAD_LIVE";
 
-    if (!noCache) {
+    if (!isNoCache && CACHE_TTL_SECONDS > 0) {
       var cachedJson = getChunkedCache(cache, cacheKey);
       if (cachedJson) {
         return createRawResponse(cachedJson, e);
