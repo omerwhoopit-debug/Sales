@@ -207,20 +207,26 @@ function doGet(e) {
         var dateStr = parseRowDate(rawDate, tabMonthIdx, year);
         var orderStr = col.order >= 0 ? String(row[col.order] || "").trim() : "";
         var nameStr = col.name >= 0 ? String(row[col.name] || "").trim() : "";
+        var phoneStr = col.phone >= 0 ? String(row[col.phone] || "").trim() : "";
         var courseStr = col.course >= 0 ? String(row[col.course] || "").trim() : "";
+        var collegeStr = col.college >= 0 ? String(row[col.college] || "").trim() : "";
         var typeVal = col.type >= 0 ? String(row[col.type] || "").trim() : "";
         var amt = col.amount >= 0 ? parseAmount(row[col.amount]) : 0;
         var leadVal = col.lead >= 0 ? String(row[col.lead] || "").trim() : "";
         var agentVal = col.agent >= 0 ? String(row[col.agent] || "").trim() : "";
 
-        if (!agentVal && leadVal.toLowerCase() === "direct sales") {
+        if (!courseStr) {
+          courseStr = "Qualification (General)";
+        }
+        if (!agentVal && (leadVal.toLowerCase() === "direct sales" || !leadVal)) {
           agentVal = "Direct Sale";
         }
+        if (!leadVal) {
+          leadVal = "Direct Sales";
+        }
 
-        // Deduplication key: prevent copy-pasted duplicate blocks
-        var dupKey = (orderStr && orderStr !== "#")
-          ? (orderStr + "|" + dateStr + "|" + amt + "|" + courseStr.toLowerCase())
-          : (dateStr + "|" + nameStr.toLowerCase() + "|" + amt + "|" + courseStr.toLowerCase());
+        // Full-identity key: prevent copy-pasted duplicate blocks while preserving legitimate distinct transactions
+        var dupKey = dateStr + "|" + orderStr + "|" + nameStr.toLowerCase() + "|" + phoneStr.toLowerCase() + "|" + courseStr.toLowerCase() + "|" + amt + "|" + collegeStr.toLowerCase();
 
         if (seenOrdersInTab[dupKey]) continue;
         seenOrdersInTab[dupKey] = true;
@@ -230,11 +236,11 @@ function doGet(e) {
           date: dateStr,
           order: orderStr,
           name: nameStr,
-          phone: col.phone >= 0 ? String(row[col.phone] || "").trim() : "",
+          phone: phoneStr,
           lead: leadVal,
           agent: agentVal,
           course: courseStr,
-          college: col.college >= 0 ? String(row[col.college] || "").trim() : "",
+          college: collegeStr || "Unknown",
           type: typeVal,
           fp: /full/i.test(typeVal),
           amount: amt

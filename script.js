@@ -9,16 +9,24 @@ function sanitizeAndDeduplicateSales(rows) {
     const orderId = (r.order || '').trim();
     const date = (r.date || '').trim();
     const name = (r.name || '').trim().toLowerCase();
+    const phone = (r.phone || '').trim().toLowerCase();
     const amt = Number(r.amount) || 0;
-    const course = (r.course || '').trim().toLowerCase();
+    const course = (r.course || '').trim();
+    const courseLower = course.toLowerCase();
+    const college = (r.college || '').trim();
     
-    const key = (orderId && orderId !== '#')
-      ? (orderId + '|' + date + '|' + amt + '|' + course)
-      : (date + '|' + name + '|' + amt + '|' + course);
-      
+    // Full-identity key prevents duplicate raw rows while preserving separate students with same amount/#Bank/#Paypal
+    const key = date + '|' + orderId + '|' + name + '|' + phone + '|' + courseLower + '|' + amt + '|' + college.toLowerCase();
+    
     if (!seen.has(key)) {
       seen.add(key);
-      clean.push(r);
+      clean.push({
+        ...r,
+        course: course || 'Qualification (General)',
+        lead: r.lead && r.lead.trim() ? r.lead.trim() : 'Direct Sales',
+        agent: r.agent && r.agent.trim() ? r.agent.trim() : 'Direct Sale',
+        college: college || 'Unknown'
+      });
     }
   }
   return clean;
