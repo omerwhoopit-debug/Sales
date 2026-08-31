@@ -380,7 +380,15 @@ function populateFilterOptions(){
 
   const defaultMonthDates = RAW_DATA.filter(r=>r.date.startsWith(defaultMonth)).map(r=>r.date).sort();
   document.getElementById('fDateFrom').value = defaultMonthDates[0] || dates[0];
-  document.getElementById('fDateTo').value = defaultMonthDates[defaultMonthDates.length-1] || dates[dates.length-1];
+  // Always use today's date (or last calendar day of the default month) as the "To" date
+  // so that late-month sales aren't cut off by deduplication removing the only copy of those rows
+  const [dmY, dmM] = defaultMonth.split('-').map(Number);
+  const lastDayOfMonth = new Date(dmY, dmM, 0); // day 0 = last day of previous month
+  const todayStr = now.getFullYear() + '-' + String(now.getMonth()+1).padStart(2,'0') + '-' + String(now.getDate()).padStart(2,'0');
+  const lastDayStr = dmY + '-' + String(dmM).padStart(2,'0') + '-' + String(lastDayOfMonth.getDate()).padStart(2,'0');
+  // For the current month: use today. For past months: use last calendar day of that month.
+  const toDate = defaultMonth === currentMonthKey ? todayStr : lastDayStr;
+  document.getElementById('fDateTo').value = toDate;
   syncDateTextFields();
 
   return { dates, monthKeys, monthSelect };
@@ -472,7 +480,14 @@ function initFilters(){
     if(mk){
       const rowsInMonth = RAW_DATA.filter(r=>r.date.startsWith(mk)).map(r=>r.date).sort();
       document.getElementById('fDateFrom').value = rowsInMonth[0];
-      document.getElementById('fDateTo').value = rowsInMonth[rowsInMonth.length-1];
+      // Use today (if current month) or last calendar day of selected month
+      const nowMs = new Date();
+      const currentMK = nowMs.getFullYear() + '-' + String(nowMs.getMonth()+1).padStart(2,'0');
+      const [mkY, mkMo] = mk.split('-').map(Number);
+      const lastDay = new Date(mkY, mkMo, 0).getDate();
+      const todayS = nowMs.getFullYear() + '-' + String(nowMs.getMonth()+1).padStart(2,'0') + '-' + String(nowMs.getDate()).padStart(2,'0');
+      const lastS = mkY + '-' + String(mkMo).padStart(2,'0') + '-' + String(lastDay).padStart(2,'0');
+      document.getElementById('fDateTo').value = mk === currentMK ? todayS : lastS;
     } else {
       const freshDates = RAW_DATA.map(r=>r.date).sort();
       document.getElementById('fDateFrom').value = freshDates[0];
@@ -515,7 +530,12 @@ function resetFilters(){
   const defaultMonth = freshMonthKeys.includes(currentMonthKey) ? currentMonthKey : freshMonthKeys[freshMonthKeys.length-1];
   const defaultMonthDates = RAW_DATA.filter(r=>r.date.startsWith(defaultMonth)).map(r=>r.date).sort();
   document.getElementById('fDateFrom').value = defaultMonthDates[0] || freshDates[0];
-  document.getElementById('fDateTo').value = defaultMonthDates[defaultMonthDates.length-1] || freshDates[freshDates.length-1];
+  // Use today or last calendar day of the month so late-month sales aren't cut off
+  const [dmY, dmM] = defaultMonth.split('-').map(Number);
+  const lastDayOfMonth = new Date(dmY, dmM, 0);
+  const todayStr = now.getFullYear() + '-' + String(now.getMonth()+1).padStart(2,'0') + '-' + String(now.getDate()).padStart(2,'0');
+  const lastDayStr = dmY + '-' + String(dmM).padStart(2,'0') + '-' + String(lastDayOfMonth.getDate()).padStart(2,'0');
+  document.getElementById('fDateTo').value = defaultMonth === currentMonthKey ? todayStr : lastDayStr;
   syncDateTextFields();
   document.getElementById('monthSelect').value = defaultMonth;
   render();
