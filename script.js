@@ -519,9 +519,8 @@ function applyFilters(){
 
 /* ---------------- Core aggregations ---------------- */
 function computeStats(rawData){
-  // Qualification revenue excludes Phlebotomy (Level 3/4/5 etc. across any field count as "qualifications");
-  // Phlebotomy has its own dedicated revenue total in the Phlebotomy section instead.
-  const data = rawData.filter(r=> !r.course.toLowerCase().includes('phlebotomy'));
+  // All sales recorded in the main table (Qualifications, Phlebotomy, etc.) are included in core totals.
+  const data = rawData;
   const totalRevenue = sum(data, r=>r.amount);
   const totalOrders = data.length;
   const totalStudents = totalOrders;
@@ -643,13 +642,13 @@ function renderTopKpis(stats, cpd, ph, revChange){
   grid.innerHTML =
     '<div class="kpi-card fade-in"><div class="glow" style="background:'+(swapToPhleb?COLORS.pink:COLORS.violet)+';"></div>'+
       '<div class="kpi-top-row"><div class="kpi-icon" style="background:'+(swapToPhleb?'rgba(236,72,153,.18)':'rgba(139,92,246,.18)')+';color:'+(swapToPhleb?COLORS.pink:COLORS.violet2)+';">'+(swapToPhleb?ICONS.phleb:ICONS.revenue)+'</div>'+(swapToPhleb?'':trendBadge(revChange))+'</div>'+
-      '<div class="kpi-label">'+(swapToPhleb?'Total Phlebotomy Revenue':'Total Qualification Revenue')+'</div>'+
+      '<div class="kpi-label">'+(swapToPhleb?'Total Phlebotomy Revenue':'Total Revenue')+'</div>'+
       '<div class="kpi-value num"><span style="font-size:16px;color:var(--ink-2);">£</span><span id="cntTopRevenue">0</span></div>'+
       '<canvas class="kpi-spark" id="sparkTopRevenue"></canvas>'+
     '</div>'+
     '<div class="kpi-card fade-in"><div class="glow" style="background:'+(swapToPhleb?COLORS.pink:COLORS.teal)+';"></div>'+
       '<div class="kpi-top-row"><div class="kpi-icon" style="background:'+(swapToPhleb?'rgba(236,72,153,.18)':'rgba(45,212,191,.18)')+';color:'+(swapToPhleb?COLORS.pink:COLORS.teal)+';">'+(swapToPhleb?ICONS.phleb:ICONS.sales)+'</div></div>'+
-      '<div class="kpi-label">'+(swapToPhleb?'Total Phlebotomy Sales':'Total Qualification Sales')+'</div>'+
+      '<div class="kpi-label">'+(swapToPhleb?'Total Phlebotomy Sales':'Total Sales')+'</div>'+
       '<div class="kpi-value num" id="cntTopStudents">0</div>'+
       '<div style="font-size:11px;color:var(--ink-2);margin-top:4px;">'+(swapToPhleb?('Part 1: '+fmtNum(ph.totalP1)+' · Part 2: '+fmtNum(ph.totalP2)):('Across '+fmtNum(stats.dailyAgg.length)+' days this period'))+'</div>'+
     '</div>'+

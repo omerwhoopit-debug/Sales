@@ -51,21 +51,29 @@ function doGet(e) {
     var ss = SpreadsheetApp.getActiveSpreadsheet();
     var sheets = ss.getSheets();
 
-    // Matches tab names like "Jul-2026", "July-2026", "Aug-2026", "August-2026"
-    var monthPattern = /^([A-Za-z]+)-(\d{4})$/;
+    // Matches tab names like "Jul-2026", "Aug-2026", "Aug-24", "Aug 2026", "August-2026", "Aug"
+    var monthPattern = /^([A-Za-z]+)(?:[\s\-_]*(\d{2,4}))?$/;
     var monthOrder = {
       jan:0, january:0, feb:1, february:1, mar:2, march:2, apr:3, april:3,
       may:4, jun:5, june:5, jul:6, july:6, aug:7, august:7,
       sep:8, sept:8, september:8, oct:9, october:9, nov:10, november:10, dec:11, december:11
     };
 
-    // Cutoff: July 2026 onward (Month index 6 = July)
-    var startCutoff = new Date(2026, 6, 1);
+    // Cutoff: Include all operational data from 2024 onwards
+    var startCutoff = new Date(2024, 0, 1);
 
     var allRows = [];
     var cpdRows = [];
     var phlebRows = [];
     var srCounter = 1;
+
+    // Helper: Clean currency and numeric strings (handles "£1,200", " 150 ", etc.)
+    function parseAmount(val) {
+      if (typeof val === "number") return val;
+      if (!val) return 0;
+      var clean = String(val).replace(/[^0-9.-]/g, "");
+      return Number(clean) || 0;
+    }
 
     // Helper: Find column index by matchers
     function findCol(header, matchers) {
@@ -121,7 +129,7 @@ function doGet(e) {
         var p0 = parseInt(parts[0], 10);
         var p1 = parseInt(parts[1], 10);
         var p2 = parseInt(parts[2], 10);
-        var yr = (p2 >= 2020) ? p2 : knownYear;
+        var yr = (p2 >= 2020) ? p2 : (p2 < 100 ? 2000 + p2 : knownYear);
 
         if (p0 > 12) {
           // p0 must be Day, p1 is Month
@@ -159,7 +167,8 @@ function doGet(e) {
       if (!match) return;
 
       var monKey = match[1].toLowerCase();
-      var year = parseInt(match[2], 10);
+      var year = match[2] ? parseInt(match[2], 10) : 2026;
+      if (year < 100) year += 2000;
       if (!(monKey in monthOrder)) return;
 
       var tabMonthIdx = monthOrder[monKey];
@@ -195,7 +204,13 @@ function doGet(e) {
         var rawDate = col.date >= 0 ? row[col.date] : "";
         var dateStr = parseRowDate(rawDate, tabMonthIdx, year);
         var typeVal = col.type >= 0 ? String(row[col.type] || "").trim() : "";
-        var amt = col.amount >= 0 ? (Number(row[col.amount]) || 0) : 0;
+        var amt = col.amount >= 0 ? parseAmount(row[col.amount]) : 0;
+        var leadVal = col.lead >= 0 ? String(row[col.lead] || "").trim() : "";
+        var agentVal = col.agent >= 0 ? String(row[col.agent] || "").trim() : "";
+
+        if (!agentVal && leadVal.toLowerCase() === "direct sales") {
+          agentVal = "Direct Sale";
+        }
 
         allRows.push({
           sr: srCounter++,
@@ -203,8 +218,8 @@ function doGet(e) {
           order: col.order >= 0 ? String(row[col.order] || "").trim() : "",
           name: col.name >= 0 ? String(row[col.name] || "").trim() : "",
           phone: col.phone >= 0 ? String(row[col.phone] || "").trim() : "",
-          lead: col.lead >= 0 ? String(row[col.lead] || "").trim() : "",
-          agent: col.agent >= 0 ? String(row[col.agent] || "").trim() : "",
+          lead: leadVal,
+          agent: agentVal,
           course: col.course >= 0 ? String(row[col.course] || "").trim() : "",
           college: col.college >= 0 ? String(row[col.college] || "").trim() : "",
           type: typeVal,
