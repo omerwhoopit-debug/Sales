@@ -7,7 +7,7 @@ import streamlit as st
 # -----------------------------------------------------------------------------
 # 1. Page Configuration
 # -----------------------------------------------------------------------------
-icon_path = "favicon-32.png" if os.path.exists("favicon-32.png") else ("logo.png" if os.path.exists("logo.png") else "📊")
+icon_path = "favicon-128.png" if os.path.exists("favicon-128.png") else ("favicon-48.png" if os.path.exists("favicon-48.png") else ("favicon-32.png" if os.path.exists("favicon-32.png") else "📊"))
 
 st.set_page_config(
     page_title="Sales Dashboard · UKPDA & ILC",
@@ -111,21 +111,13 @@ def build_bundled_dashboard():
             css_content = f.read()
         html = html.replace('<link rel="stylesheet" href="style.css">', f'<style>\n{css_content}\n</style>')
 
-    # 2. Inline Branding Images as Base64
-    if os.path.exists("logo.png"):
-        with open("logo.png", "rb") as f:
-            logo_b64 = base64.b64encode(f.read()).decode("utf-8")
-        html = html.replace('src="logo.png"', f'src="data:image/png;base64,{logo_b64}"')
-
-    if os.path.exists("favicon.png"):
-        with open("favicon.png", "rb") as f:
-            fav_b64 = base64.b64encode(f.read()).decode("utf-8")
-        html = html.replace('href="favicon.png"', f'href="data:image/png;base64,{fav_b64}"')
-
-    if os.path.exists("favicon-32.png"):
-        with open("favicon-32.png", "rb") as f:
-            fav32_b64 = base64.b64encode(f.read()).decode("utf-8")
-        html = html.replace('href="favicon-32.png"', f'href="data:image/png;base64,{fav32_b64}"')
+    # 2. Inline Branding & High-Resolution Favicons as Base64
+    for fav_name in ["logo.png", "favicon.png", "favicon-16.png", "favicon-32.png", "favicon-48.png", "favicon-128.png"]:
+        if os.path.exists(fav_name):
+            with open(fav_name, "rb") as f:
+                b64_data = base64.b64encode(f.read()).decode("utf-8")
+            html = html.replace(f'href="{fav_name}"', f'href="data:image/png;base64,{b64_data}"')
+            html = html.replace(f'src="{fav_name}"', f'src="data:image/png;base64,{b64_data}"')
 
     # 3. Fetch server-cached data to eliminate client cold starts
     cached_data = fetch_cached_payload(SHEET_API_URL, SECURITY_TOKEN)

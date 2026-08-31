@@ -304,6 +304,12 @@ function populateFilterOptions(){
   const fAgent = document.getElementById('fAgent'); clearOptions(fAgent);
   agents.forEach(a=>{ const o=document.createElement('option'); o.value=a; o.textContent=a; fAgent.appendChild(o); });
 
+  const topAgentSelect = document.getElementById('topAgentSelect');
+  if(topAgentSelect){
+    clearOptions(topAgentSelect);
+    agents.forEach(a=>{ const o=document.createElement('option'); o.value=a; o.textContent=a; topAgentSelect.appendChild(o); });
+  }
+
   document.getElementById('fDateFrom').min = dates[0];
   document.getElementById('fDateFrom').max = dates[dates.length-1];
   document.getElementById('fDateTo').min = dates[0];
@@ -401,7 +407,11 @@ function initFilters(){
     document.getElementById(id).addEventListener('change', ()=>{
       syncMonthWithDates(); render();
       if(id === 'fDateFrom' || id === 'fDateTo'){ syncDateTextFields(); }
-      if(id === 'fAgent'){ window.scrollTo({top:0, behavior:'smooth'}); }
+      if(id === 'fAgent'){
+        const topSelect = document.getElementById('topAgentSelect');
+        if(topSelect) topSelect.value = document.getElementById('fAgent').value;
+        window.scrollTo({top:0, behavior:'smooth'});
+      }
     });
   });
   document.getElementById('fSearch').addEventListener('input', debounce(()=>{ render(); }, 180));
@@ -424,18 +434,19 @@ function initFilters(){
     syncDateTextFields();
     render();
   });
+
+  const topAgentSelect = document.getElementById('topAgentSelect');
+  if(topAgentSelect){
+    topAgentSelect.addEventListener('change', ()=>{
+      document.getElementById('fAgent').value = topAgentSelect.value;
+      render();
+      window.scrollTo({top:0, behavior:'smooth'});
+    });
+  }
+
   document.getElementById('resetBtn').addEventListener('click', resetFilters);
   const topReset = document.getElementById('topResetFiltersBtn');
   if(topReset) topReset.addEventListener('click', resetFilters);
-
-  const topAgents = document.getElementById('topManageAgentsBtn');
-  if(topAgents){
-    topAgents.addEventListener('click', ()=>{
-      const overlay = document.getElementById('agentMgmtOverlay');
-      if(overlay) overlay.classList.add('open');
-      renderAgentManagement();
-    });
-  }
 
   document.getElementById('exportBtn').addEventListener('click', exportCsv);
   document.getElementById('themeToggleBtn').addEventListener('click', toggleTheme);
@@ -447,6 +458,8 @@ function resetFilters(){
   document.getElementById('fCourse').value='';
   document.getElementById('fLead').value='';
   document.getElementById('fAgent').value='';
+  const topAgentSelect = document.getElementById('topAgentSelect');
+  if(topAgentSelect) topAgentSelect.value = '';
   document.getElementById('fSearch').value='';
   const freshDates = RAW_DATA.map(r=>r.date).sort();
   const freshMonthKeys = [...new Set(RAW_DATA.map(r=>r.date.slice(0,7)))].sort();
