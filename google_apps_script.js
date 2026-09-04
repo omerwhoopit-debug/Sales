@@ -194,9 +194,7 @@ function doGet(e) {
         college: findCol(header11, ["college name", "college"]),
         amount:  findCol(header11, ["amount"])
       };
-
-      var seenOrdersInTab = {};
-
+ 
       for (var i = 1; i < data.length; i++) {
         var row = data[i];
         var slice = row.slice(0, 11);
@@ -224,12 +222,6 @@ function doGet(e) {
         if (!leadVal) {
           leadVal = "Direct Sales";
         }
-
-        // Full-identity key: prevent copy-pasted duplicate blocks while preserving legitimate distinct transactions
-        var dupKey = dateStr + "|" + orderStr + "|" + nameStr.toLowerCase() + "|" + phoneStr.toLowerCase() + "|" + courseStr.toLowerCase() + "|" + amt + "|" + collegeStr.toLowerCase();
-
-        if (seenOrdersInTab[dupKey]) continue;
-        seenOrdersInTab[dupKey] = true;
 
         allRows.push({
           sr: srCounter++,

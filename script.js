@@ -1,36 +1,24 @@
 let RAW_DATA = [];
 
-function sanitizeAndDeduplicateSales(rows) {
+function sanitizeSales(rows) {
   if (!Array.isArray(rows)) return [];
-  const seen = new Set();
   const clean = [];
   for (const r of rows) {
     if (!r) continue;
-    const orderId = (r.order || '').trim();
-    const date = (r.date || '').trim();
-    const name = (r.name || '').trim().toLowerCase();
-    const phone = (r.phone || '').trim().toLowerCase();
-    const amt = Number(r.amount) || 0;
     const course = (r.course || '').trim();
-    const courseLower = course.toLowerCase();
     const college = (r.college || '').trim();
-    
-    // Full-identity key prevents duplicate raw rows while preserving separate students with same amount/#Bank/#Paypal
-    const key = date + '|' + orderId + '|' + name + '|' + phone + '|' + courseLower + '|' + amt + '|' + college.toLowerCase();
-    
-    if (!seen.has(key)) {
-      seen.add(key);
-      clean.push({
-        ...r,
-        course: course || 'Qualification (General)',
-        lead: r.lead && r.lead.trim() ? r.lead.trim() : 'Direct Sales',
-        agent: r.agent && r.agent.trim() ? r.agent.trim() : 'Direct Sale',
-        college: college || 'Unknown'
-      });
-    }
+    clean.push({
+      ...r,
+      course: course || 'Qualification (General)',
+      lead: r.lead && r.lead.trim() ? r.lead.trim() : 'Direct Sales',
+      agent: r.agent && r.agent.trim() ? r.agent.trim() : 'Direct Sale',
+      college: college || 'Unknown',
+      amount: Number(r.amount) || 0
+    });
   }
   return clean;
 }
+const sanitizeAndDeduplicateSales = sanitizeSales;
 
 function sanitizeAndDeduplicateCpd(rows) {
   if (!Array.isArray(rows)) return [];
@@ -49,7 +37,7 @@ function sanitizeAndDeduplicateCpd(rows) {
 
 // ---------------- Live data sync (Google Sheet via Apps Script) ----------------
 const SHEET_API_URL = window.SHEET_API_URL || "https://script.google.com/macros/s/AKfycbzMNsgB9AjtNBXBmANcAMDIJn70M4zDwaYTdLRLpkwJ6dLfwLMwflsulDY1X2ux0JMo0A/exec";
-const REFRESH_INTERVAL_MS = 60000; // auto-refresh every 60 seconds
+const REFRESH_INTERVAL_MS = 10000; // auto-refresh every 10 seconds for rapid sync
 let _hasLoadedOnce = false;
 
 async function loadData(){
@@ -688,12 +676,8 @@ function renderGreeting(stats){
 function renderTopKpis(stats, cpd, ph, revChange){
   const agent = document.getElementById('fAgent').value;
   const qualOn = !agent || agentSellsQual(agent);
-  // Swap to Phlebotomy whenever showing "Total Qualification Revenue" for this agent
-  // would be empty/uninformative — either because they aren't assigned Qualifications
-  // at all, or because they simply have no Qualification sales in the selected date
-  // range (e.g. an agent who normally sells both, viewed for a period where only
-  // their Phlebotomy sales fall).
-  const swapToPhleb = agent && (!qualOn || stats.totalOrders === 0) && ph.total > 0;
+  const phlebOn = agent ? agentSellsPhleb(agent) : true;
+  const cpdOn = agent ? agentSellsCpd(agent) : true;
 
   const trendVals = stats.dailyAgg.map(d=>d.revenue);
   const cpdTrendVals = cpd.dailyAgg.map(d=>d.total);
@@ -706,45 +690,153 @@ function renderTopKpis(stats, cpd, ph, revChange){
   }
 
   const grid = document.getElementById('kpiRow');
-  grid.innerHTML =
-    '<div class="kpi-card fade-in"><div class="glow" style="background:'+(swapToPhleb?COLORS.pink:COLORS.violet)+';"></div>'+
-      '<div class="kpi-top-row"><div class="kpi-icon" style="background:'+(swapToPhleb?'rgba(236,72,153,.18)':'rgba(139,92,246,.18)')+';color:'+(swapToPhleb?COLORS.pink:COLORS.violet2)+';">'+(swapToPhleb?ICONS.phleb:ICONS.revenue)+'</div>'+(swapToPhleb?'':trendBadge(revChange))+'</div>'+
-      '<div class="kpi-label">'+(swapToPhleb?'Total Phlebotomy Revenue':'Total Qualification Revenue')+'</div>'+
-      '<div class="kpi-value num"><span style="font-size:16px;color:var(--ink-2);">£</span><span id="cntTopRevenue">0</span></div>'+
-      '<canvas class="kpi-spark" id="sparkTopRevenue"></canvas>'+
-    '</div>'+
-    '<div class="kpi-card fade-in"><div class="glow" style="background:'+(swapToPhleb?COLORS.pink:COLORS.teal)+';"></div>'+
-      '<div class="kpi-top-row"><div class="kpi-icon" style="background:'+(swapToPhleb?'rgba(236,72,153,.18)':'rgba(45,212,191,.18)')+';color:'+(swapToPhleb?COLORS.pink:COLORS.teal)+';">'+(swapToPhleb?ICONS.phleb:ICONS.sales)+'</div></div>'+
-      '<div class="kpi-label">'+(swapToPhleb?'Total Phlebotomy Sales':'Total Qualification Sales')+'</div>'+
-      '<div class="kpi-value num" id="cntTopStudents">0</div>'+
-      '<div style="font-size:11px;color:var(--ink-2);margin-top:4px;">'+(swapToPhleb?('Part 1: '+fmtNum(ph.totalP1)+' · Part 2: '+fmtNum(ph.totalP2)):('Across '+fmtNum(stats.dailyAgg.length)+' days this period'))+'</div>'+
-    '</div>'+
-    '<div class="kpi-card fade-in"><div class="glow" style="background:'+COLORS.orange+';"></div>'+
-      '<div class="kpi-top-row"><div class="kpi-icon" style="background:rgba(251,146,60,.18);color:'+COLORS.orange+';">'+ICONS.cpd+'</div><span class="kpi-trend up">ILC '+fmtNum(cpd.ilcTotal)+'</span></div>'+
-      '<div class="kpi-label">Total CPD Sales</div>'+
-      '<div class="kpi-value num" id="cntTopCpd">0</div>'+
-      (agent ? '<div style="font-size:10.5px;color:var(--ink-3);margin-top:4px;">Company-wide · not tracked per agent</div>' : '<canvas class="kpi-spark" id="sparkTopCpd"></canvas>')+
-    '</div>'+
-    '<div class="kpi-card fade-in"><div class="glow" style="background:'+COLORS.pink+';"></div>'+
-      '<div class="kpi-top-row"><div class="kpi-icon" style="background:rgba(236,72,153,.18);color:'+COLORS.pink+';">'+ICONS.phleb+'</div><span class="kpi-trend up">P1 '+fmtNum(ph.totalP1)+'</span></div>'+
-      '<div class="kpi-label">Total Phlebotomy Sales</div>'+
-      '<div class="kpi-value num" id="cntTopPhleb">0</div>'+
-      '<canvas class="kpi-spark" id="sparkTopPhleb"></canvas>'+
-    '</div>';
+  if(!grid) return;
 
-  if(swapToPhleb){
-    animateCounter(document.getElementById('cntTopRevenue'), ph.totalRevenue, v=>Math.round(v).toLocaleString('en-GB'));
-    animateCounter(document.getElementById('cntTopStudents'), ph.total, v=>fmtNum(Math.round(v)));
-    drawSparkline(document.getElementById('sparkTopRevenue'), phRevenueTrendVals, COLORS.pink);
+  if(agent){
+    // AGENT FILTER ACTIVE:
+    // Rule 1: Never show CPD Sales on top KPI card when an agent is selected.
+    // Rule 2: If agent has both Qualification AND Phlebotomy checked:
+    // Show: Total Qualification Revenue, Total Qualification Sales, Total Phlebotomy Sales, Total Phlebotomy Revenue.
+    if(qualOn && phlebOn){
+      grid.innerHTML =
+        '<div class="kpi-card fade-in"><div class="glow" style="background:'+COLORS.violet+';"></div>'+
+          '<div class="kpi-top-row"><div class="kpi-icon" style="background:rgba(139,92,246,.18);color:'+COLORS.violet2+';">'+ICONS.revenue+'</div>'+trendBadge(revChange)+'</div>'+
+          '<div class="kpi-label">Total Qualification Revenue</div>'+
+          '<div class="kpi-value num"><span style="font-size:16px;color:var(--ink-2);">£</span><span id="cntTopRevenue">0</span></div>'+
+          '<canvas class="kpi-spark" id="sparkTopRevenue"></canvas>'+
+        '</div>'+
+        '<div class="kpi-card fade-in"><div class="glow" style="background:'+COLORS.teal+';"></div>'+
+          '<div class="kpi-top-row"><div class="kpi-icon" style="background:rgba(45,212,191,.18);color:'+COLORS.teal+';">'+ICONS.sales+'</div></div>'+
+          '<div class="kpi-label">Total Qualification Sales</div>'+
+          '<div class="kpi-value num" id="cntTopStudents">0</div>'+
+          '<div style="font-size:11px;color:var(--ink-2);margin-top:4px;">Across '+fmtNum(stats.dailyAgg.length)+' active days</div>'+
+        '</div>'+
+        '<div class="kpi-card fade-in"><div class="glow" style="background:'+COLORS.pink+';"></div>'+
+          '<div class="kpi-top-row"><div class="kpi-icon" style="background:rgba(236,72,153,.18);color:'+COLORS.pink+';">'+ICONS.phleb+'</div><span class="kpi-trend up">P1 '+fmtNum(ph.totalP1)+' · P2 '+fmtNum(ph.totalP2)+'</span></div>'+
+          '<div class="kpi-label">Total Phlebotomy Sales</div>'+
+          '<div class="kpi-value num" id="cntTopPhleb">0</div>'+
+          '<canvas class="kpi-spark" id="sparkTopPhleb"></canvas>'+
+        '</div>'+
+        '<div class="kpi-card fade-in"><div class="glow" style="background:'+COLORS.pink+';"></div>'+
+          '<div class="kpi-top-row"><div class="kpi-icon" style="background:rgba(236,72,153,.18);color:'+COLORS.pink+';">'+ICONS.revenue+'</div></div>'+
+          '<div class="kpi-label">Total Phlebotomy Revenue</div>'+
+          '<div class="kpi-value num"><span style="font-size:16px;color:var(--ink-2);">£</span><span id="cntTopPhlebRev">0</span></div>'+
+          '<canvas class="kpi-spark" id="sparkTopPhlebRev"></canvas>'+
+        '</div>';
+
+      animateCounter(document.getElementById('cntTopRevenue'), stats.totalRevenue, v=>Math.round(v).toLocaleString('en-GB'));
+      animateCounter(document.getElementById('cntTopStudents'), stats.totalOrders, v=>fmtNum(Math.round(v)));
+      animateCounter(document.getElementById('cntTopPhleb'), ph.total, v=>fmtNum(Math.round(v)));
+      animateCounter(document.getElementById('cntTopPhlebRev'), ph.totalRevenue, v=>Math.round(v).toLocaleString('en-GB'));
+      drawSparkline(document.getElementById('sparkTopRevenue'), trendVals, COLORS.violet2);
+      drawSparkline(document.getElementById('sparkTopPhleb'), phTrendVals, COLORS.pink);
+      drawSparkline(document.getElementById('sparkTopPhlebRev'), phRevenueTrendVals, COLORS.pink);
+
+    } else if(!qualOn && phlebOn){
+      // Only Phlebotomy is checked for this agent
+      grid.innerHTML =
+        '<div class="kpi-card fade-in"><div class="glow" style="background:'+COLORS.pink+';"></div>'+
+          '<div class="kpi-top-row"><div class="kpi-icon" style="background:rgba(236,72,153,.18);color:'+COLORS.pink+';">'+ICONS.revenue+'</div></div>'+
+          '<div class="kpi-label">Total Phlebotomy Revenue</div>'+
+          '<div class="kpi-value num"><span style="font-size:16px;color:var(--ink-2);">£</span><span id="cntTopPhlebRev">0</span></div>'+
+          '<canvas class="kpi-spark" id="sparkTopPhlebRev"></canvas>'+
+        '</div>'+
+        '<div class="kpi-card fade-in"><div class="glow" style="background:'+COLORS.pink+';"></div>'+
+          '<div class="kpi-top-row"><div class="kpi-icon" style="background:rgba(236,72,153,.18);color:'+COLORS.pink+';">'+ICONS.phleb+'</div><span class="kpi-trend up">Total '+fmtNum(ph.total)+'</span></div>'+
+          '<div class="kpi-label">Total Phlebotomy Sales</div>'+
+          '<div class="kpi-value num" id="cntTopPhleb">0</div>'+
+          '<canvas class="kpi-spark" id="sparkTopPhleb"></canvas>'+
+        '</div>'+
+        '<div class="kpi-card fade-in"><div class="glow" style="background:'+COLORS.violet+';"></div>'+
+          '<div class="kpi-top-row"><div class="kpi-icon" style="background:rgba(139,92,246,.18);color:'+COLORS.violet2+';">'+ICONS.target+'</div><span class="kpi-trend up">'+(ph.total?(ph.totalP1/ph.total*100).toFixed(0):0)+'%</span></div>'+
+          '<div class="kpi-label">Part 1 Sales</div>'+
+          '<div class="kpi-value num" id="cntTopPhlebP1">0</div>'+
+        '</div>'+
+        '<div class="kpi-card fade-in"><div class="glow" style="background:'+COLORS.teal+';"></div>'+
+          '<div class="kpi-top-row"><div class="kpi-icon" style="background:rgba(45,212,191,.18);color:'+COLORS.teal+';">'+ICONS.target+'</div><span class="kpi-trend up">'+(ph.total?(ph.totalP2/ph.total*100).toFixed(0):0)+'%</span></div>'+
+          '<div class="kpi-label">Part 2 Sales</div>'+
+          '<div class="kpi-value num" id="cntTopPhlebP2">0</div>'+
+        '</div>';
+
+      animateCounter(document.getElementById('cntTopPhlebRev'), ph.totalRevenue, v=>Math.round(v).toLocaleString('en-GB'));
+      animateCounter(document.getElementById('cntTopPhleb'), ph.total, v=>fmtNum(Math.round(v)));
+      animateCounter(document.getElementById('cntTopPhlebP1'), ph.totalP1, v=>fmtNum(Math.round(v)));
+      animateCounter(document.getElementById('cntTopPhlebP2'), ph.totalP2, v=>fmtNum(Math.round(v)));
+      drawSparkline(document.getElementById('sparkTopPhlebRev'), phRevenueTrendVals, COLORS.pink);
+      drawSparkline(document.getElementById('sparkTopPhleb'), phTrendVals, COLORS.pink);
+
+    } else {
+      // Only Qualifications is checked (Phlebotomy and CPD hidden on top cards)
+      const avgVal = stats.totalOrders ? (stats.totalRevenue / stats.totalOrders) : 0;
+      grid.innerHTML =
+        '<div class="kpi-card fade-in"><div class="glow" style="background:'+COLORS.violet+';"></div>'+
+          '<div class="kpi-top-row"><div class="kpi-icon" style="background:rgba(139,92,246,.18);color:'+COLORS.violet2+';">'+ICONS.revenue+'</div>'+trendBadge(revChange)+'</div>'+
+          '<div class="kpi-label">Total Qualification Revenue</div>'+
+          '<div class="kpi-value num"><span style="font-size:16px;color:var(--ink-2);">£</span><span id="cntTopRevenue">0</span></div>'+
+          '<canvas class="kpi-spark" id="sparkTopRevenue"></canvas>'+
+        '</div>'+
+        '<div class="kpi-card fade-in"><div class="glow" style="background:'+COLORS.teal+';"></div>'+
+          '<div class="kpi-top-row"><div class="kpi-icon" style="background:rgba(45,212,191,.18);color:'+COLORS.teal+';">'+ICONS.sales+'</div></div>'+
+          '<div class="kpi-label">Total Qualification Sales</div>'+
+          '<div class="kpi-value num" id="cntTopStudents">0</div>'+
+          '<div style="font-size:11px;color:var(--ink-2);margin-top:4px;">Across '+fmtNum(stats.dailyAgg.length)+' active days this period</div>'+
+        '</div>'+
+        '<div class="kpi-card fade-in"><div class="glow" style="background:'+COLORS.orange+';"></div>'+
+          '<div class="kpi-top-row"><div class="kpi-icon" style="background:rgba(251,146,60,.18);color:'+COLORS.orange+';">'+ICONS.target+'</div></div>'+
+          '<div class="kpi-label">Average Order Value</div>'+
+          '<div class="kpi-value num"><span style="font-size:16px;color:var(--ink-2);">£</span><span id="cntTopAvg">0</span></div>'+
+          '<div style="font-size:11px;color:var(--ink-2);margin-top:4px;">Average revenue per order</div>'+
+        '</div>'+
+        '<div class="kpi-card fade-in"><div class="glow" style="background:'+COLORS.violet2+';"></div>'+
+          '<div class="kpi-top-row"><div class="kpi-icon" style="background:rgba(139,92,246,.18);color:'+COLORS.violet2+';">'+ICONS.book+'</div></div>'+
+          '<div class="kpi-label">Active Courses Sold</div>'+
+          '<div class="kpi-value num" id="cntTopCourseCount">0</div>'+
+          '<div style="font-size:11px;color:var(--ink-2);margin-top:4px;">Distinct courses enrolled</div>'+
+        '</div>';
+
+      animateCounter(document.getElementById('cntTopRevenue'), stats.totalRevenue, v=>Math.round(v).toLocaleString('en-GB'));
+      animateCounter(document.getElementById('cntTopStudents'), stats.totalOrders, v=>fmtNum(Math.round(v)));
+      animateCounter(document.getElementById('cntTopAvg'), avgVal, v=>Math.round(v).toLocaleString('en-GB'));
+      animateCounter(document.getElementById('cntTopCourseCount'), stats.courseAgg.length, v=>fmtNum(Math.round(v)));
+      drawSparkline(document.getElementById('sparkTopRevenue'), trendVals, COLORS.violet2);
+    }
+
   } else {
+    // ALL AGENTS (NO FILTER):
+    grid.innerHTML =
+      '<div class="kpi-card fade-in"><div class="glow" style="background:'+COLORS.violet+';"></div>'+
+        '<div class="kpi-top-row"><div class="kpi-icon" style="background:rgba(139,92,246,.18);color:'+COLORS.violet2+';">'+ICONS.revenue+'</div>'+trendBadge(revChange)+'</div>'+
+        '<div class="kpi-label">Total Qualification Revenue</div>'+
+        '<div class="kpi-value num"><span style="font-size:16px;color:var(--ink-2);">£</span><span id="cntTopRevenue">0</span></div>'+
+        '<canvas class="kpi-spark" id="sparkTopRevenue"></canvas>'+
+      '</div>'+
+      '<div class="kpi-card fade-in"><div class="glow" style="background:'+COLORS.teal+';"></div>'+
+        '<div class="kpi-top-row"><div class="kpi-icon" style="background:rgba(45,212,191,.18);color:'+COLORS.teal+';">'+ICONS.sales+'</div></div>'+
+        '<div class="kpi-label">Total Qualification Sales</div>'+
+        '<div class="kpi-value num" id="cntTopStudents">0</div>'+
+        '<div style="font-size:11px;color:var(--ink-2);margin-top:4px;">Across '+fmtNum(stats.dailyAgg.length)+' days this period</div>'+
+      '</div>'+
+      '<div class="kpi-card fade-in"><div class="glow" style="background:'+COLORS.orange+';"></div>'+
+        '<div class="kpi-top-row"><div class="kpi-icon" style="background:rgba(251,146,60,.18);color:'+COLORS.orange+';">'+ICONS.cpd+'</div><span class="kpi-trend up">ILC '+fmtNum(cpd.ilcTotal)+'</span></div>'+
+        '<div class="kpi-label">Total CPD Sales</div>'+
+        '<div class="kpi-value num" id="cntTopCpd">0</div>'+
+        '<canvas class="kpi-spark" id="sparkTopCpd"></canvas>'+
+      '</div>'+
+      '<div class="kpi-card fade-in"><div class="glow" style="background:'+COLORS.pink+';"></div>'+
+        '<div class="kpi-top-row"><div class="kpi-icon" style="background:rgba(236,72,153,.18);color:'+COLORS.pink+';">'+ICONS.phleb+'</div><span class="kpi-trend up">P1 '+fmtNum(ph.totalP1)+'</span></div>'+
+        '<div class="kpi-label">Total Phlebotomy Sales</div>'+
+        '<div class="kpi-value num" id="cntTopPhleb">0</div>'+
+        '<canvas class="kpi-spark" id="sparkTopPhleb"></canvas>'+
+      '</div>';
+
     animateCounter(document.getElementById('cntTopRevenue'), stats.totalRevenue, v=>Math.round(v).toLocaleString('en-GB'));
     animateCounter(document.getElementById('cntTopStudents'), stats.totalOrders, v=>fmtNum(Math.round(v)));
+    animateCounter(document.getElementById('cntTopCpd'), cpd.totalCpd, v=>fmtNum(Math.round(v)));
+    animateCounter(document.getElementById('cntTopPhleb'), ph.total, v=>fmtNum(Math.round(v)));
     drawSparkline(document.getElementById('sparkTopRevenue'), trendVals, COLORS.violet2);
+    drawSparkline(document.getElementById('sparkTopCpd'), cpdTrendVals, COLORS.orange);
+    drawSparkline(document.getElementById('sparkTopPhleb'), phTrendVals, COLORS.pink);
   }
-  animateCounter(document.getElementById('cntTopCpd'), cpd.totalCpd, v=>fmtNum(Math.round(v)));
-  animateCounter(document.getElementById('cntTopPhleb'), ph.total, v=>fmtNum(Math.round(v)));
-  if(!agent) drawSparkline(document.getElementById('sparkTopCpd'), cpdTrendVals, COLORS.orange);
-  drawSparkline(document.getElementById('sparkTopPhleb'), phTrendVals, COLORS.pink);
 }
 
 function renderHero(stats, ph){
@@ -1462,6 +1554,249 @@ function setupAgentManagement(){
   });
 }
 
+/* ---------------- Monthly Comparison Feature ---------------- */
+function getPrecedingMonthKey(mk){
+  const [y, m] = mk.split('-').map(Number);
+  const prevD = new Date(y, m - 2, 1);
+  return prevD.getFullYear() + '-' + String(prevD.getMonth() + 1).padStart(2, '0');
+}
+
+function renderMonthlyComparison(targetMonthKey){
+  const modal = document.getElementById('monthlyComparisonModal');
+  if(!modal) return;
+
+  const monthKeys = [...new Set(RAW_DATA.map(r=>r.date.slice(0,7)))].sort();
+  if(!monthKeys.length) return;
+
+  const sel = document.getElementById('monthlyCompareSelect');
+  if(sel && sel.options.length === 0){
+    sel.innerHTML = monthKeys.slice().reverse().map(mk=>{
+      const [y,m] = mk.split('-').map(Number);
+      return '<option value="'+mk+'">'+monthName(y,m)+'</option>';
+    }).join('');
+  }
+
+  const currMK = targetMonthKey || (sel ? sel.value : '') || monthKeys[monthKeys.length - 1];
+  if(sel) sel.value = currMK;
+
+  const prevMK = getPrecedingMonthKey(currMK);
+  const [currY, currM] = currMK.split('-').map(Number);
+  const [prevY, prevM] = prevMK.split('-').map(Number);
+  const currName = monthName(currY, currM);
+  const prevName = monthName(prevY, prevM);
+
+  const prevBadge = document.getElementById('monthlyComparePrevName');
+  if(prevBadge) prevBadge.textContent = prevName;
+
+  // 1. Qualifications:
+  const currQual = RAW_DATA.filter(r=> r.date.startsWith(currMK) && !r.course.toLowerCase().includes('phlebotomy'));
+  const prevQual = RAW_DATA.filter(r=> r.date.startsWith(prevMK) && !r.course.toLowerCase().includes('phlebotomy'));
+
+  const currQualSales = currQual.length;
+  const prevQualSales = prevQual.length;
+  const currQualRev = sum(currQual, r=>r.amount);
+  const prevQualRev = sum(prevQual, r=>r.amount);
+
+  // 2. Phlebotomy:
+  const currPhleb = computePhlebStats(currMK + '-01', currMK + '-31');
+  const prevPhleb = computePhlebStats(prevMK + '-01', prevMK + '-31');
+
+  const currPhlebSales = currPhleb.total;
+  const prevPhlebSales = prevPhleb.total;
+  const currPhlebRev = currPhleb.totalRevenue;
+  const prevPhlebRev = prevPhleb.totalRevenue;
+
+  function diffBadgeHtml(curr, prev, isCurrency){
+    const diff = curr - prev;
+    if(diff === 0) return '<span class="diff-badge neutral">0%</span>';
+    const pct = prev > 0 ? ((diff / prev) * 100).toFixed(1) : (curr > 0 ? '+100' : '0');
+    const sign = diff > 0 ? '+' : '';
+    const diffStr = isCurrency ? (sign + '£' + Math.abs(Math.round(diff)).toLocaleString('en-GB')) : (sign + fmtNum(diff));
+    const isUp = diff > 0;
+    return '<span class="diff-badge '+(isUp?'up':'down')+'">'+(isUp?'▲ ':'▼ ')+diffStr+' ('+sign+pct+'%)</span>';
+  }
+
+  // Render 4 KPI Comparison Cards
+  const kpiGrid = document.getElementById('monthlyCompareKpiGrid');
+  if(kpiGrid){
+    kpiGrid.innerHTML =
+      '<div class="compare-kpi-card fade-in">'+
+        '<div class="compare-kpi-title">Total Qualification Sales</div>'+
+        '<div class="compare-kpi-main">'+
+          '<div class="compare-kpi-val">'+fmtNum(currQualSales)+'</div>'+
+          diffBadgeHtml(currQualSales, prevQualSales, false)+
+        '</div>'+
+        '<div class="compare-kpi-prev">'+prevName+': <strong>'+fmtNum(prevQualSales)+'</strong> sales</div>'+
+      '</div>'+
+      '<div class="compare-kpi-card fade-in">'+
+        '<div class="compare-kpi-title">Total Qualification Revenue</div>'+
+        '<div class="compare-kpi-main">'+
+          '<div class="compare-kpi-val">£'+Math.round(currQualRev).toLocaleString('en-GB')+'</div>'+
+          diffBadgeHtml(currQualRev, prevQualRev, true)+
+        '</div>'+
+        '<div class="compare-kpi-prev">'+prevName+': <strong>£'+Math.round(prevQualRev).toLocaleString('en-GB')+'</strong></div>'+
+      '</div>'+
+      '<div class="compare-kpi-card fade-in">'+
+        '<div class="compare-kpi-title">Total Phlebotomy Sales</div>'+
+        '<div class="compare-kpi-main">'+
+          '<div class="compare-kpi-val">'+fmtNum(currPhlebSales)+'</div>'+
+          diffBadgeHtml(currPhlebSales, prevPhlebSales, false)+
+        '</div>'+
+        '<div class="compare-kpi-prev">'+prevName+': <strong>'+fmtNum(prevPhlebSales)+'</strong> sales</div>'+
+      '</div>'+
+      '<div class="compare-kpi-card fade-in">'+
+        '<div class="compare-kpi-title">Total Phlebotomy Revenue</div>'+
+        '<div class="compare-kpi-main">'+
+          '<div class="compare-kpi-val">£'+Math.round(currPhlebRev).toLocaleString('en-GB')+'</div>'+
+          diffBadgeHtml(currPhlebRev, prevPhlebRev, true)+
+        '</div>'+
+        '<div class="compare-kpi-prev">'+prevName+': <strong>£'+Math.round(prevPhlebRev).toLocaleString('en-GB')+'</strong></div>'+
+      '</div>';
+  }
+
+  // 3. Course-by-course breakdown:
+  const allCoursesSet = new Set();
+  currQual.forEach(r=>allCoursesSet.add(r.course));
+  prevQual.forEach(r=>allCoursesSet.add(r.course));
+  // Include Phlebotomy courses
+  const phlebCourses = [...new Set(RAW_DATA.filter(r=>r.course.toLowerCase().includes('phlebotomy')).map(r=>r.course))];
+  if(phlebCourses.length){
+    phlebCourses.forEach(c=>allCoursesSet.add(c));
+  } else {
+    allCoursesSet.add('Phlebotomy (Part 1)');
+    allCoursesSet.add('Phlebotomy (Part 2)');
+  }
+
+  const courseStatsList = [...allCoursesSet].map(course=>{
+    const isPhleb = course.toLowerCase().includes('phlebotomy');
+    let pSales = 0, cSales = 0, pRev = 0, cRev = 0;
+
+    if(isPhleb){
+      const isP1 = course.toLowerCase().includes('part 1');
+      const isP2 = course.toLowerCase().includes('part 2');
+      if(isP1){
+        cSales = currPhleb.totalP1;
+        pSales = prevPhleb.totalP1;
+      } else if(isP2){
+        cSales = currPhleb.totalP2;
+        pSales = prevPhleb.totalP2;
+      } else {
+        cSales = currPhleb.total;
+        pSales = prevPhleb.total;
+      }
+      cRev = sum(RAW_DATA.filter(r=>r.date.startsWith(currMK) && r.course === course), r=>r.amount);
+      pRev = sum(RAW_DATA.filter(r=>r.date.startsWith(prevMK) && r.course === course), r=>r.amount);
+    } else {
+      const cRows = currQual.filter(r=>r.course === course);
+      const pRows = prevQual.filter(r=>r.course === course);
+      cSales = cRows.length;
+      pSales = pRows.length;
+      cRev = sum(cRows, r=>r.amount);
+      pRev = sum(pRows, r=>r.amount);
+    }
+
+    return {
+      course,
+      type: isPhleb ? 'Phlebotomy' : 'Qualification',
+      pSales, cSales,
+      salesDiff: cSales - pSales,
+      pRev, cRev,
+      revDiff: cRev - pRev
+    };
+  }).sort((a,b)=> b.cRev - a.cRev || b.cSales - a.cSales);
+
+  window._lastMonthlyCourseStats = courseStatsList;
+  renderMonthlyCourseTable(courseStatsList);
+}
+
+function renderMonthlyCourseTable(list){
+  const tb = document.getElementById('tbMonthlyCourseCompare');
+  if(!tb) return;
+  const search = (document.getElementById('monthlyCourseSearch')?.value || '').toLowerCase().trim();
+  const filtered = search ? list.filter(c=>c.course.toLowerCase().includes(search) || c.type.toLowerCase().includes(search)) : list;
+
+  if(!filtered.length){
+    tb.innerHTML = '<tr><td colspan="8" style="text-align:center;padding:24px;color:var(--ink-3);">No matching courses found</td></tr>';
+    return;
+  }
+
+  tb.innerHTML = filtered.map(c=>{
+    const salesUp = c.salesDiff >= 0;
+    const revUp = c.revDiff >= 0;
+    const sDiffStr = (c.salesDiff > 0 ? '+' : '') + fmtNum(c.salesDiff);
+    const rDiffStr = (c.revDiff > 0 ? '+£' : (c.revDiff < 0 ? '-£' : '£')) + Math.abs(Math.round(c.revDiff)).toLocaleString('en-GB');
+
+    return '<tr>'+
+      '<td style="font-weight:600;color:var(--ink);">'+escapeHtml(c.course)+'</td>'+
+      '<td><span class="pill-type" style="font-size:10.5px;padding:3px 7px;border-radius:6px;background:'+(c.type==='Phlebotomy'?'rgba(236,72,153,.14);color:'+COLORS.pink:'rgba(139,92,246,.14);color:'+COLORS.violet2)+'">'+c.type+'</span></td>'+
+      '<td style="text-align:right;" class="num">'+fmtNum(c.pSales)+'</td>'+
+      '<td style="text-align:right;font-weight:700;" class="num">'+fmtNum(c.cSales)+'</td>'+
+      '<td style="text-align:right;"><span class="diff-badge '+(c.salesDiff===0?'neutral':(salesUp?'up':'down'))+'">'+(c.salesDiff===0?'—':(salesUp?'▲ ':'▼ ')+sDiffStr)+'</span></td>'+
+      '<td style="text-align:right;" class="num">£'+Math.round(c.pRev).toLocaleString('en-GB')+'</td>'+
+      '<td style="text-align:right;font-weight:700;" class="num">£'+Math.round(c.cRev).toLocaleString('en-GB')+'</td>'+
+      '<td style="text-align:right;"><span class="diff-badge '+(c.revDiff===0?'neutral':(revUp?'up':'down'))+'">'+(c.revDiff===0?'—':(revUp?'▲ ':'▼ ')+rDiffStr)+'</span></td>'+
+    '</tr>';
+  }).join('');
+}
+
+function setupMonthlyComparison(){
+  const btn = document.getElementById('topMonthlyComparisonBtn');
+  const modal = document.getElementById('monthlyComparisonModal');
+  const closeBtn = document.getElementById('monthlyComparisonCloseBtn');
+  const sel = document.getElementById('monthlyCompareSelect');
+  const search = document.getElementById('monthlyCourseSearch');
+
+  if(btn && modal){
+    btn.addEventListener('click', ()=>{
+      renderMonthlyComparison();
+      modal.classList.add('open');
+    });
+  }
+  if(closeBtn && modal){
+    closeBtn.addEventListener('click', ()=> modal.classList.remove('open'));
+  }
+  if(modal){
+    modal.addEventListener('click', (e)=>{ if(e.target === modal) modal.classList.remove('open'); });
+  }
+  document.addEventListener('keydown', (e)=>{
+    if(e.key === 'Escape' && modal && modal.classList.contains('open')){
+      modal.classList.remove('open');
+    }
+  });
+
+  if(sel){
+    sel.addEventListener('change', ()=> renderMonthlyComparison(sel.value));
+  }
+  if(search){
+    search.addEventListener('input', ()=>{
+      if(window._lastMonthlyCourseStats) renderMonthlyCourseTable(window._lastMonthlyCourseStats);
+    });
+  }
+}
+
+/* ---------------- Quick Instant Sync Button ---------------- */
+function setupTopRefresh(){
+  const btn = document.getElementById('topRefreshBtn');
+  if(!btn) return;
+  btn.addEventListener('click', async ()=>{
+    btn.classList.add('is-spinning');
+    btn.title = 'Syncing latest data from Google Sheets…';
+    const syncText = document.getElementById('sbSyncInfo');
+    if(syncText) syncText.textContent = 'Syncing live data…';
+    try {
+      await loadData();
+      if(syncText) syncText.textContent = 'Synced just now! (' + RAW_DATA.length + ' orders)';
+    } catch(err) {
+      console.error('Manual sync failed:', err);
+    } finally {
+      setTimeout(()=> {
+        btn.classList.remove('is-spinning');
+        btn.title = 'Instant live refresh from Google Sheets';
+      }, 600);
+    }
+  });
+}
+
 function renderAgentFilterView(){
   const agent = document.getElementById('fAgent').value;
   const college = document.getElementById('fCollege').value;
@@ -1752,6 +2087,8 @@ function init(){
   setupSidebarCollapse();
   setupNotifications();
   setupAgentManagement();
+  setupMonthlyComparison();
+  setupTopRefresh();
 
   let savedDark = true;
   try{ const saved = localStorage.getItem('dashboardTheme'); if(saved) savedDark = saved === 'dark'; }catch(e){}

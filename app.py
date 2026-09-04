@@ -79,8 +79,8 @@ SECURITY_TOKEN = get_secret("SECURITY_TOKEN", "")
 AUTH_USERNAME = get_secret("AUTH_USERNAME", "admin")
 AUTH_PASSWORD = get_secret("AUTH_PASSWORD", "admin")
 
-# Server-side caching for 10 seconds (ensures rapid sync with Google Sheets)
-@st.cache_data(ttl=10, show_spinner=False)
+# Server-side caching for 3 seconds (ensures rapid sync with Google Sheets)
+@st.cache_data(ttl=3, show_spinner=False)
 def fetch_cached_payload(api_url, token=""):
     try:
         params = {"nocache": "1"}

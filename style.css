@@ -1090,4 +1090,166 @@ footer{text-align:center;color:var(--ink-3);font-size:11px;padding:30px 0 10px;}
   background: rgba(248, 113, 113, 0.14);
   color: var(--red);
 }
+
+/* Quick Refresh Button Animation */
+.topbar-refresh-btn.is-spinning svg {
+  animation: spinRefresh 0.75s linear infinite;
+}
+@keyframes spinRefresh {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+/* Monthly Comparison Button & Modal */
+.topbar-monthly-btn {
+  background: rgba(139, 92, 246, 0.12);
+  border-color: rgba(139, 92, 246, 0.35);
+  color: var(--ink);
+}
+.topbar-monthly-btn:hover {
+  background: rgba(139, 92, 246, 0.22);
+  border-color: var(--violet);
+  color: #fff;
+}
+
+.modal-card-wide {
+  max-width: 960px !important;
+  width: 95vw !important;
+}
+
+.comparison-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+  background: rgba(139, 92, 246, 0.08);
+  border: 1px solid rgba(139, 92, 246, 0.2);
+  border-radius: 12px;
+  padding: 12px 16px;
+  margin-bottom: 20px;
+}
+.comparison-select-group {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.comparison-select-group label {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--ink-2);
+}
+.comparison-select-group select {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  color: var(--ink);
+  padding: 6px 12px;
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 600;
+  outline: none;
+  cursor: pointer;
+}
+.comparison-versus-badge {
+  font-size: 12px;
+  color: var(--ink-2);
+  background: var(--panel);
+  padding: 6px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+}
+.comparison-versus-badge strong {
+  color: var(--violet-2);
+}
+
+.comparison-kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+  gap: 14px;
+  margin-bottom: 24px;
+}
+.compare-kpi-card {
+  background: var(--card);
+  border: 1px solid var(--card-border);
+  border-radius: 14px;
+  padding: 16px;
+  position: relative;
+  overflow: hidden;
+}
+.compare-kpi-title {
+  font-size: 11.5px;
+  font-weight: 700;
+  color: var(--ink-2);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 8px;
+}
+.compare-kpi-main {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+.compare-kpi-val {
+  font-size: 24px;
+  font-weight: 800;
+  font-family: 'Plus Jakarta Sans', sans-serif;
+  color: var(--ink);
+}
+.compare-kpi-prev {
+  font-size: 11.5px;
+  color: var(--ink-3);
+  margin-top: 6px;
+}
+
+.diff-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 3px 8px;
+  border-radius: 6px;
+}
+.diff-badge.up {
+  background: rgba(52, 211, 153, 0.16);
+  color: #34D399;
+}
+.diff-badge.down {
+  background: rgba(248, 113, 113, 0.16);
+  color: #F87171;
+}
+.diff-badge.neutral {
+  background: rgba(167, 155, 196, 0.16);
+  color: var(--ink-2);
+}
+
+.comparison-table-wrap {
+  background: var(--card);
+  border: 1px solid var(--card-border);
+  border-radius: 14px;
+  padding: 16px;
+}
+.comparison-table-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+  flex-wrap: wrap;
+}
+.table-search-input {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  color: var(--ink);
+  padding: 6px 12px;
+  border-radius: 8px;
+  font-size: 11.5px;
+  width: 200px;
+  outline: none;
+}
+.table-search-input:focus {
+  border-color: var(--violet);
+}
+
 
