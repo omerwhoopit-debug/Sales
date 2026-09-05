@@ -302,7 +302,7 @@ function setupScrollAnimatedCharts(){
   });
 }
 
-/* ---------------- Sidebar collapse toggle ---------------- */
+/* ---------------- Sidebar collapse toggle & floating tooltip ---------------- */
 function setupSidebarCollapse(){
   const sidebar = document.getElementById('sidebar');
   const btn = document.getElementById('sidebarToggle');
@@ -310,11 +310,44 @@ function setupSidebarCollapse(){
   let collapsed = false;
   try{ collapsed = localStorage.getItem('sidebarCollapsed') === '1'; }catch(e){}
   sidebar.classList.toggle('collapsed', collapsed);
+
+  // Floating tooltip for collapsed sidebar
+  let tooltip = document.getElementById('sidebarFloatingTooltip');
+  if(!tooltip){
+    tooltip = document.createElement('div');
+    tooltip.id = 'sidebarFloatingTooltip';
+    tooltip.className = 'sidebar-floating-tooltip';
+    document.body.appendChild(tooltip);
+  }
+
+  function hideTooltip(){
+    if(tooltip) tooltip.classList.remove('is-visible');
+  }
+
   btn.addEventListener('click', ()=>{
     collapsed = !sidebar.classList.contains('collapsed');
     sidebar.classList.toggle('collapsed', collapsed);
     try{ localStorage.setItem('sidebarCollapsed', collapsed ? '1' : '0'); }catch(e){}
+    hideTooltip();
   });
+
+  const links = sidebar.querySelectorAll('.sb-link');
+  links.forEach(link=>{
+    link.addEventListener('mouseenter', ()=>{
+      if(!sidebar.classList.contains('collapsed')) return;
+      const label = link.getAttribute('data-label') || link.querySelector('.sb-link-label')?.textContent || '';
+      if(!label) return;
+      tooltip.textContent = label;
+      const rect = link.getBoundingClientRect();
+      tooltip.style.left = (rect.right + 12) + 'px';
+      tooltip.style.top = (rect.top + (rect.height / 2) - 15) + 'px';
+      tooltip.classList.add('is-visible');
+    });
+    link.addEventListener('mouseleave', hideTooltip);
+    link.addEventListener('click', hideTooltip);
+  });
+
+  window.addEventListener('scroll', hideTooltip, {passive:true});
 }
 
 /* ---------------- Filter dropdowns ---------------- */
@@ -998,15 +1031,21 @@ function renderFullPaymentSection(){
   const isFP = r => r.fp === true || r.fpSeq !== undefined;
   const from = document.getElementById('fDateFrom').value;
   const to = document.getElementById('fDateTo').value;
-  let dateOnlyRows = RAW_DATA;
-  if(from) dateOnlyRows = dateOnlyRows.filter(r=>r.date >= from);
-  if(to) dateOnlyRows = dateOnlyRows.filter(r=>r.date <= to);
-  const allFpRows = dateOnlyRows.filter(isFP);
+
+  // Qualifications only (exclude Phlebotomy per user requirement)
+  let qualOnlyRows = RAW_DATA.filter(r => !r.course.toLowerCase().includes('phlebotomy'));
+  if(from) qualOnlyRows = qualOnlyRows.filter(r=>r.date >= from);
+  if(to) qualOnlyRows = qualOnlyRows.filter(r=>r.date <= to);
+
+  const allFpRows = qualOnlyRows.filter(isFP);
   const runningTotal = allFpRows.length;
-  const installmentRunningTotal = dateOnlyRows.length - runningTotal;
-  const rows = filtered.filter(isFP).sort((a,b)=> a.date.localeCompare(b.date) || a.sr - b.sr);
+  const installmentRunningTotal = qualOnlyRows.length - runningTotal;
+
+  // Table rows and share based on active filters, also excluding Phlebotomy
+  const qualFiltered = filtered.filter(r => !r.course.toLowerCase().includes('phlebotomy'));
+  const rows = qualFiltered.filter(isFP).sort((a,b)=> a.date.localeCompare(b.date) || a.sr - b.sr);
   const fpRevenue = sum(rows, r=>r.amount);
-  const share = filtered.length ? (rows.length / filtered.length * 100) : 0;
+  const share = qualFiltered.length ? (rows.length / qualFiltered.length * 100) : 0;
 
   grid.innerHTML =
     '<div class="kpi-card fade-in"><div class="kpi-top-row"><div class="kpi-icon" style="background:rgba(52,211,153,.18);color:'+COLORS.green+';">'+ICONS.target+'</div></div><div class="kpi-label">Total Full Payment Sales</div><div class="kpi-value num" id="cntFullPaymentTotal">0</div><div style="font-size:11px;color:var(--ink-2);margin-top:4px;">Running total to date</div></div>'+
@@ -1569,16 +1608,23 @@ function renderMonthlyComparison(targetMonthKey){
   if(!monthKeys.length) return;
 
   const sel = document.getElementById('monthlyCompareSelect');
-  if(sel && sel.options.length === 0){
+  if(sel){
+    const prevSelected = sel.value;
     sel.innerHTML = monthKeys.slice().reverse().map(mk=>{
       const [y,m] = mk.split('-').map(Number);
       return '<option value="'+mk+'">'+monthName(y,m)+'</option>';
     }).join('');
+    if(targetMonthKey){
+      sel.value = targetMonthKey;
+    } else if(prevSelected && monthKeys.includes(prevSelected)){
+      sel.value = prevSelected;
+    } else {
+      const activeFilterMonth = document.getElementById('monthSelect')?.value;
+      sel.value = (activeFilterMonth && monthKeys.includes(activeFilterMonth)) ? activeFilterMonth : monthKeys[monthKeys.length - 1];
+    }
   }
 
-  const currMK = targetMonthKey || (sel ? sel.value : '') || monthKeys[monthKeys.length - 1];
-  if(sel) sel.value = currMK;
-
+  const currMK = (sel ? sel.value : '') || targetMonthKey || monthKeys[monthKeys.length - 1];
   const prevMK = getPrecedingMonthKey(currMK);
   const [currY, currM] = currMK.split('-').map(Number);
   const [prevY, prevM] = prevMK.split('-').map(Number);
@@ -1598,8 +1644,10 @@ function renderMonthlyComparison(targetMonthKey){
   const prevQualRev = sum(prevQual, r=>r.amount);
 
   // 2. Phlebotomy:
-  const currPhleb = computePhlebStats(currMK + '-01', currMK + '-31');
-  const prevPhleb = computePhlebStats(prevMK + '-01', prevMK + '-31');
+  const currLastDay = new Date(currY, currM, 0).getDate();
+  const prevLastDay = new Date(prevY, prevM, 0).getDate();
+  const currPhleb = computePhlebStats(currMK + '-01', currMK + '-' + String(currLastDay).padStart(2,'0'));
+  const prevPhleb = computePhlebStats(prevMK + '-01', prevMK + '-' + String(prevLastDay).padStart(2,'0'));
 
   const currPhlebSales = currPhleb.total;
   const prevPhlebSales = prevPhleb.total;
