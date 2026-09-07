@@ -62,6 +62,11 @@ async function loadData(){
           _hasLoadedOnce = true;
           finishInit();
         } else {
+          populateFilterOptions(true);
+          const mgmtOverlay = document.getElementById('agentMgmtOverlay');
+          if(mgmtOverlay && mgmtOverlay.classList.contains('open')){
+            renderAgentMgmtPanel();
+          }
           render();
           const el = document.getElementById('sbSyncInfo');
           const lastDate = RAW_DATA.length ? (RAW_DATA.map(r=>r.date).sort().slice(-1)[0]) : null;
@@ -353,35 +358,51 @@ function setupSidebarCollapse(){
 /* ---------------- Filter dropdowns ---------------- */
 function clearOptions(select){ while(select.options.length > 1){ select.remove(1); } }
 
-function populateFilterOptions(){
+function populateFilterOptions(preserveExisting = false){
+  const curCollege = document.getElementById('fCollege') ? document.getElementById('fCollege').value : '';
+  const curCourse = document.getElementById('fCourse') ? document.getElementById('fCourse').value : '';
+  const curLead = document.getElementById('fLead') ? document.getElementById('fLead').value : '';
+  const curAgent = document.getElementById('fAgent') ? document.getElementById('fAgent').value : '';
+  const curTopAgent = document.getElementById('topAgentSelect') ? document.getElementById('topAgentSelect').value : curAgent;
+  const curMonth = document.getElementById('monthSelect') ? document.getElementById('monthSelect').value : null;
+  const curDateFrom = document.getElementById('fDateFrom') ? document.getElementById('fDateFrom').value : '';
+  const curDateTo = document.getElementById('fDateTo') ? document.getElementById('fDateTo').value : '';
+
   const colleges = [...new Set(RAW_DATA.map(r=>r.college))].sort();
   const courses = [...new Set(RAW_DATA.map(r=>r.course))].sort();
   const leads = [...new Set(RAW_DATA.map(r=>r.lead))].filter(Boolean).sort();
-  const agents = [...new Set([...RAW_DATA.map(r=>r.agent), ...getCustomAgents()])].filter(Boolean).sort((a,b)=> a==='Direct Sale'?1:b==='Direct Sale'?-1:a.localeCompare(b));
+  const agents = getAllAgentNames();
   const dates = RAW_DATA.map(r=>r.date).sort();
 
   const fCollege = document.getElementById('fCollege'); clearOptions(fCollege);
   colleges.forEach(c=>{ const o=document.createElement('option'); o.value=c; o.textContent=c; fCollege.appendChild(o); });
+  if(preserveExisting && curCollege && colleges.includes(curCollege)){ fCollege.value = curCollege; }
 
   const fCourse = document.getElementById('fCourse'); clearOptions(fCourse);
   courses.forEach(c=>{ const o=document.createElement('option'); o.value=c; o.textContent=c.length>42?c.slice(0,42)+'…':c; fCourse.appendChild(o); });
+  if(preserveExisting && curCourse && courses.includes(curCourse)){ fCourse.value = curCourse; }
 
   const fLead = document.getElementById('fLead'); clearOptions(fLead);
   leads.forEach(l=>{ const o=document.createElement('option'); o.value=l; o.textContent=l; fLead.appendChild(o); });
+  if(preserveExisting && curLead && leads.includes(curLead)){ fLead.value = curLead; }
 
   const fAgent = document.getElementById('fAgent'); clearOptions(fAgent);
   agents.forEach(a=>{ const o=document.createElement('option'); o.value=a; o.textContent=a; fAgent.appendChild(o); });
+  if(preserveExisting && curAgent && agents.includes(curAgent)){ fAgent.value = curAgent; }
 
   const topAgentSelect = document.getElementById('topAgentSelect');
   if(topAgentSelect){
     clearOptions(topAgentSelect);
     agents.forEach(a=>{ const o=document.createElement('option'); o.value=a; o.textContent=a; topAgentSelect.appendChild(o); });
+    if(preserveExisting && curTopAgent && agents.includes(curTopAgent)){ topAgentSelect.value = curTopAgent; }
   }
 
-  document.getElementById('fDateFrom').min = dates[0];
-  document.getElementById('fDateFrom').max = dates[dates.length-1];
-  document.getElementById('fDateTo').min = dates[0];
-  document.getElementById('fDateTo').max = dates[dates.length-1];
+  if(dates.length > 0){
+    document.getElementById('fDateFrom').min = dates[0];
+    document.getElementById('fDateFrom').max = dates[dates.length-1];
+    document.getElementById('fDateTo').min = dates[0];
+    document.getElementById('fDateTo').max = dates[dates.length-1];
+  }
 
   const monthKeys = [...new Set(RAW_DATA.map(r=>r.date.slice(0,7)))].sort();
   const monthSelect = document.getElementById('monthSelect');
@@ -393,23 +414,32 @@ function populateFilterOptions(){
   });
   const allOpt = document.createElement('option'); allOpt.value=''; allOpt.textContent='All periods'; monthSelect.insertBefore(allOpt, monthSelect.firstChild);
 
-  // Default to the current real-world calendar month if it has data; otherwise the latest month present
   const now = new Date();
   const currentMonthKey = now.getFullYear() + '-' + String(now.getMonth()+1).padStart(2,'0');
   const defaultMonth = monthKeys.includes(currentMonthKey) ? currentMonthKey : monthKeys[monthKeys.length-1];
-  monthSelect.value = defaultMonth;
 
-  const defaultMonthDates = RAW_DATA.filter(r=>r.date.startsWith(defaultMonth)).map(r=>r.date).sort();
-  document.getElementById('fDateFrom').value = defaultMonthDates[0] || dates[0];
-  // Always use today's date (or last calendar day of the default month) as the "To" date
-  // so that late-month sales aren't cut off by deduplication removing the only copy of those rows
-  const [dmY, dmM] = defaultMonth.split('-').map(Number);
-  const lastDayOfMonth = new Date(dmY, dmM, 0); // day 0 = last day of previous month
-  const todayStr = now.getFullYear() + '-' + String(now.getMonth()+1).padStart(2,'0') + '-' + String(now.getDate()).padStart(2,'0');
-  const lastDayStr = dmY + '-' + String(dmM).padStart(2,'0') + '-' + String(lastDayOfMonth.getDate()).padStart(2,'0');
-  // For the current month: use today. For past months: use last calendar day of that month.
-  const toDate = defaultMonth === currentMonthKey ? todayStr : lastDayStr;
-  document.getElementById('fDateTo').value = toDate;
+  if(preserveExisting && curMonth !== null && (curMonth === '' || monthKeys.includes(curMonth))){
+    monthSelect.value = curMonth;
+    if(curDateFrom) document.getElementById('fDateFrom').value = curDateFrom;
+    if(curDateTo) document.getElementById('fDateTo').value = curDateTo;
+  } else {
+    // Default to the current real-world calendar month if it has data; otherwise the latest month present
+    monthSelect.value = defaultMonth;
+
+    const defaultMonthDates = RAW_DATA.filter(r=>r.date.startsWith(defaultMonth)).map(r=>r.date).sort();
+    document.getElementById('fDateFrom').value = defaultMonthDates[0] || (dates[0] || '');
+    // Always use today's date (or last calendar day of the default month) as the "To" date
+    // so that late-month sales aren't cut off by deduplication removing the only copy of those rows
+    if(defaultMonth){
+      const [dmY, dmM] = defaultMonth.split('-').map(Number);
+      const lastDayOfMonth = new Date(dmY, dmM, 0); // day 0 = last day of previous month
+      const todayStr = now.getFullYear() + '-' + String(now.getMonth()+1).padStart(2,'0') + '-' + String(now.getDate()).padStart(2,'0');
+      const lastDayStr = dmY + '-' + String(dmM).padStart(2,'0') + '-' + String(lastDayOfMonth.getDate()).padStart(2,'0');
+      // For the current month: use today. For past months: use last calendar day of that month.
+      const toDate = defaultMonth === currentMonthKey ? todayStr : lastDayStr;
+      document.getElementById('fDateTo').value = toDate;
+    }
+  }
   syncDateTextFields();
 
   return { dates, monthKeys, monthSelect };
@@ -849,26 +879,26 @@ function renderTopKpis(stats, cpd, ph, revChange){
         '<div class="kpi-value num" id="cntTopStudents">0</div>'+
         '<div style="font-size:11px;color:var(--ink-2);margin-top:4px;">Across '+fmtNum(stats.dailyAgg.length)+' days this period</div>'+
       '</div>'+
-      '<div class="kpi-card fade-in"><div class="glow" style="background:'+COLORS.orange+';"></div>'+
-        '<div class="kpi-top-row"><div class="kpi-icon" style="background:rgba(251,146,60,.18);color:'+COLORS.orange+';">'+ICONS.cpd+'</div><span class="kpi-trend up">ILC '+fmtNum(cpd.ilcTotal)+'</span></div>'+
-        '<div class="kpi-label">Total CPD Sales</div>'+
-        '<div class="kpi-value num" id="cntTopCpd">0</div>'+
-        '<canvas class="kpi-spark" id="sparkTopCpd"></canvas>'+
-      '</div>'+
       '<div class="kpi-card fade-in"><div class="glow" style="background:'+COLORS.pink+';"></div>'+
         '<div class="kpi-top-row"><div class="kpi-icon" style="background:rgba(236,72,153,.18);color:'+COLORS.pink+';">'+ICONS.phleb+'</div><span class="kpi-trend up">P1 '+fmtNum(ph.totalP1)+'</span></div>'+
         '<div class="kpi-label">Total Phlebotomy Sales</div>'+
         '<div class="kpi-value num" id="cntTopPhleb">0</div>'+
         '<canvas class="kpi-spark" id="sparkTopPhleb"></canvas>'+
+      '</div>'+
+      '<div class="kpi-card fade-in"><div class="glow" style="background:'+COLORS.orange+';"></div>'+
+        '<div class="kpi-top-row"><div class="kpi-icon" style="background:rgba(251,146,60,.18);color:'+COLORS.orange+';">'+ICONS.cpd+'</div><span class="kpi-trend up">ILC '+fmtNum(cpd.ilcTotal)+'</span></div>'+
+        '<div class="kpi-label">Total CPD Sales</div>'+
+        '<div class="kpi-value num" id="cntTopCpd">0</div>'+
+        '<canvas class="kpi-spark" id="sparkTopCpd"></canvas>'+
       '</div>';
 
     animateCounter(document.getElementById('cntTopRevenue'), stats.totalRevenue, v=>Math.round(v).toLocaleString('en-GB'));
     animateCounter(document.getElementById('cntTopStudents'), stats.totalOrders, v=>fmtNum(Math.round(v)));
-    animateCounter(document.getElementById('cntTopCpd'), cpd.totalCpd, v=>fmtNum(Math.round(v)));
     animateCounter(document.getElementById('cntTopPhleb'), ph.total, v=>fmtNum(Math.round(v)));
+    animateCounter(document.getElementById('cntTopCpd'), cpd.totalCpd, v=>fmtNum(Math.round(v)));
     drawSparkline(document.getElementById('sparkTopRevenue'), trendVals, COLORS.violet2);
-    drawSparkline(document.getElementById('sparkTopCpd'), cpdTrendVals, COLORS.orange);
     drawSparkline(document.getElementById('sparkTopPhleb'), phTrendVals, COLORS.pink);
+    drawSparkline(document.getElementById('sparkTopCpd'), cpdTrendVals, COLORS.orange);
   }
 }
 
@@ -1559,7 +1589,7 @@ function renderAgentMgmtPanel(){
         if(!confirmed) return;
         saveCustomAgents(getCustomAgents().filter(n=>n!==name));
         renderAgentMgmtPanel();
-        populateFilterOptions();
+        populateFilterOptions(true);
       });
     }
   });
@@ -1586,7 +1616,7 @@ function setupAgentManagement(){
     }
     input.value = '';
     renderAgentMgmtPanel();
-    populateFilterOptions();
+    populateFilterOptions(true);
   });
   document.getElementById('newAgentNameInput').addEventListener('keydown', (e)=>{
     if(e.key === 'Enter') document.getElementById('addAgentBtn').click();
