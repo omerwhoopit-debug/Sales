@@ -39,8 +39,18 @@ function sanitizeAndDeduplicateCpd(rows) {
 const SHEET_API_URL = window.SHEET_API_URL || "https://script.google.com/macros/s/AKfycbzMNsgB9AjtNBXBmANcAMDIJn70M4zDwaYTdLRLpkwJ6dLfwLMwflsulDY1X2ux0JMo0A/exec";
 const REFRESH_INTERVAL_MS = 10000; // auto-refresh every 10 seconds for rapid sync
 let _hasLoadedOnce = false;
+let _lastDataFingerprint = '';
 
-async function loadData(){
+function computeDataFingerprint(sales, cpd, phleb){
+  const sLen = sales ? sales.length : 0;
+  const sFirst = sLen && sales[0] ? String(sales[0].order) + String(sales[0].date) : '';
+  const sLast = sLen && sales[sLen-1] ? String(sales[sLen-1].order) + String(sales[sLen-1].date) : '';
+  const cLen = cpd ? cpd.length : 0;
+  const pLen = phleb ? phleb.length : 0;
+  return sLen + '_' + sFirst + '_' + sLast + '_' + cLen + '_' + pLen;
+}
+
+async function loadData(isSilent = false){
   return new Promise((resolve) => {
     const callbackName = '__sheetDataCb_' + Date.now();
     let settled = false;
@@ -54,23 +64,39 @@ async function loadData(){
       settled = true;
       try{
         if(!data || !Array.isArray(data.sales)) throw new Error('Unexpected response shape');
+        
+        const currentFingerprint = computeDataFingerprint(data.sales, data.cpd, data.phleb);
         RAW_DATA = sanitizeAndDeduplicateSales(data.sales);
         CPD_DATA = sanitizeAndDeduplicateCpd(Array.isArray(data.cpd) ? data.cpd : []);
         PHLEB_DATA = Array.isArray(data.phleb) ? data.phleb : [];
 
         if(!_hasLoadedOnce){
           _hasLoadedOnce = true;
+          _lastDataFingerprint = currentFingerprint;
           finishInit();
         } else {
-          populateFilterOptions(true);
-          const mgmtOverlay = document.getElementById('agentMgmtOverlay');
-          if(mgmtOverlay && mgmtOverlay.classList.contains('open')){
-            renderAgentMgmtPanel();
+          const dataChanged = currentFingerprint !== _lastDataFingerprint;
+          _lastDataFingerprint = currentFingerprint;
+
+          if(!dataChanged && isSilent){
+            // Silent refresh: data has not changed, avoid unnecessary DOM and chart churn!
+            const el = document.getElementById('sbSyncInfo');
+            const lastDate = RAW_DATA.length ? (RAW_DATA.map(r=>r.date).sort().slice(-1)[0]) : null;
+            if(el) el.textContent = lastDate ? (RAW_DATA.length + ' orders · Synced just now') : 'No data available';
+          } else {
+            window._isSilentRefresh = isSilent;
+            populateFilterOptions(true);
+            const mgmtOverlay = document.getElementById('agentMgmtOverlay');
+            if(mgmtOverlay && mgmtOverlay.classList.contains('open')){
+              renderAgentMgmtPanel();
+            }
+            render();
+            window._isSilentRefresh = false;
+
+            const el = document.getElementById('sbSyncInfo');
+            const lastDate = RAW_DATA.length ? (RAW_DATA.map(r=>r.date).sort().slice(-1)[0]) : null;
+            if(el) el.textContent = lastDate ? (RAW_DATA.length + ' orders · through ' + fmtDateShort(lastDate)) : 'No data available';
           }
-          render();
-          const el = document.getElementById('sbSyncInfo');
-          const lastDate = RAW_DATA.length ? (RAW_DATA.map(r=>r.date).sort().slice(-1)[0]) : null;
-          if(el) el.textContent = lastDate ? (RAW_DATA.length + ' orders · through ' + fmtDateShort(lastDate)) : 'No data available';
         }
       }catch(err){
         console.error('Live data sync failed:', err);
@@ -154,12 +180,19 @@ function initials(name){
 }
 
 function animateCounter(el, endVal, formatter, duration){
+  if(!el) return;
   duration = duration || 900;
+  const currentVal = el._rawCurrentVal !== undefined ? el._rawCurrentVal : 0;
+  el._rawCurrentVal = endVal;
+  if(window._isSilentRefresh || Math.abs(endVal - currentVal) < 0.001){
+    el.textContent = formatter(endVal);
+    return;
+  }
   const startTime = performance.now();
   function tick(now){
     const p = Math.min(1, (now - startTime) / duration);
     const eased = 1 - Math.pow(1 - p, 3);
-    el.textContent = formatter(0 + (endVal - 0) * eased);
+    el.textContent = formatter(currentVal + (endVal - currentVal) * eased);
     if(p < 1) requestAnimationFrame(tick); else el.textContent = formatter(endVal);
   }
   requestAnimationFrame(tick);
@@ -1101,6 +1134,13 @@ function renderFullPaymentSection(){
 
 /* ---------------- Render: Tables ---------------- */
 function renderTables(stats){
+  const scrolls = {};
+  ['tblCoursePerf', 'tblLeadAnalysis', 'tblDaily', 'tblAgentPerf'].forEach(id => {
+    const el = document.getElementById(id);
+    const wrap = el ? el.closest('.table-scroll') : null;
+    if(wrap) scrolls[id] = wrap.scrollTop;
+  });
+
   const cp = document.getElementById('tblCoursePerf');
   cp.innerHTML = stats.courseAgg.map((c,i)=>
     '<tr><td><span class="rank '+(i===0?'top1':i===1?'top2':i===2?'top3':'')+'">'+(i+1)+'</span></td>'+
@@ -1136,6 +1176,12 @@ function renderTables(stats){
     '<td style="text-align:right;" class="num">'+fmtGBP(a.avg)+'</td>'+
     '<td style="text-align:right;" class="num">'+a.share.toFixed(1)+'%</td></tr>'
   ).join('') || emptyRow(6);
+
+  Object.keys(scrolls).forEach(id => {
+    const el = document.getElementById(id);
+    const wrap = el ? el.closest('.table-scroll') : null;
+    if(wrap && scrolls[id]) wrap.scrollTop = scrolls[id];
+  });
 }
 
 /* ---------------- CPD render ---------------- */
@@ -1325,10 +1371,17 @@ const arcCountLabelsPlugin = {
 if(typeof Chart !== 'undefined'){ Chart.register(centerTextPlugin); Chart.register(barValueLabelsPlugin); Chart.register(arcCountLabelsPlugin); }
 
 function renderDailyTrend(stats){
-  destroyChart('daily');
   const ctx = document.getElementById('chartDailyTrend');
+  if(!ctx) return;
   const labels = stats.dailyAgg.map(d=>fmtDateShort(d.date));
   const values = stats.dailyAgg.map(d=>d.revenue);
+  if(charts.daily && window._isSilentRefresh){
+    charts.daily.data.labels = labels;
+    charts.daily.data.datasets[0].data = values;
+    charts.daily.update('none');
+    return;
+  }
+  destroyChart('daily');
   const gradient = ctx.getContext('2d').createLinearGradient(0,0,0,270);
   gradient.addColorStop(0, 'rgba(139,92,246,0.35)');
   gradient.addColorStop(1, 'rgba(139,92,246,0.0)');
@@ -1343,11 +1396,27 @@ function renderDailyTrend(stats){
   });
 }
 function renderCollegeDonut(stats){
-  destroyChart('college');
   const ctx = document.getElementById('chartCollegeDonut');
+  if(!ctx) return;
   const labels = stats.collegeAgg.map(c=>c.college);
   const values = stats.collegeAgg.map(c=>c.revenue);
   const palette = labels.map(l=> l==='UKPDA'?COLORS.red:(l==='ILC'?COLORS.ilcBlue:COLORS.green));
+  if(charts.college && window._isSilentRefresh){
+    charts.college.data.labels = labels;
+    charts.college.data.datasets[0].data = values;
+    charts.college.data.datasets[0].backgroundColor = palette;
+    charts.college.config._centerText = { label:'QUALIFICATION REVENUE', value: fmtGBP(stats.totalRevenue) };
+    charts.college.config._arcCounts = stats.collegeAgg.map(c=>c.students);
+    charts.college.update('none');
+    const legend = document.getElementById('collegeLegend');
+    if(legend){
+      legend.innerHTML = stats.collegeAgg.map((c,i)=>
+        '<div class="legend-item"><span class="legend-swatch" style="background:'+palette[i]+'"></span>'+c.college+' · '+fmtNum(c.students)+' enrollments · '+(c.revenue/stats.totalRevenue*100).toFixed(0)+'% rev</div>'
+      ).join('');
+    }
+    return;
+  }
+  destroyChart('college');
   charts.college = new Chart(ctx, {
     type:'doughnut',
     data:{ labels, datasets:[{ data: values, backgroundColor: palette, borderWidth:3, borderColor:'#1B1330', hoverOffset:6 }] },
@@ -1363,20 +1432,28 @@ function renderCollegeDonut(stats){
   charts.college.config._arcCounts = stats.collegeAgg.map(c=>c.students);
   charts.college.update();
   const legend = document.getElementById('collegeLegend');
-  const totalStudents = stats.totalStudents || 1;
   legend.innerHTML = stats.collegeAgg.map((c,i)=>
     '<div class="legend-item"><span class="legend-swatch" style="background:'+palette[i]+'"></span>'+c.college+' · '+fmtNum(c.students)+' enrollments · '+(c.revenue/stats.totalRevenue*100).toFixed(0)+'% rev</div>'
   ).join('');
 }
 function renderRevByCourse(stats){
-  destroyChart('revCourse');
   const ctx = document.getElementById('chartRevByCourse');
+  if(!ctx) return;
   const top = stats.courseAgg.slice(0,8);
   const labels = top.map(c=>c.course.length>28?c.course.slice(0,28)+'…':c.course);
   const values = top.map(c=>c.revenue);
+  const palette = top.map((_,i)=>COURSE_PALETTE[i%COURSE_PALETTE.length]);
+  if(charts.revCourse && window._isSilentRefresh){
+    charts.revCourse.data.labels = labels;
+    charts.revCourse.data.datasets[0].data = values;
+    charts.revCourse.data.datasets[0].backgroundColor = palette;
+    charts.revCourse.update('none');
+    return;
+  }
+  destroyChart('revCourse');
   charts.revCourse = new Chart(ctx, {
     type:'bar',
-    data:{ labels, datasets:[{ data: values, backgroundColor: top.map((_,i)=>COURSE_PALETTE[i%COURSE_PALETTE.length]), borderRadius:6, maxBarThickness:18 }] },
+    data:{ labels, datasets:[{ data: values, backgroundColor: palette, borderRadius:6, maxBarThickness:18 }] },
     options:{
       indexAxis:'y', responsive:true, maintainAspectRatio:false, animation:{ duration:1800, easing:'easeOutQuart' },
       plugins:{ legend:{display:false}, tooltip:tooltipStyle({ callbacks:{ label: c=> ' '+fmtGBP2(c.parsed.x) } }) },
@@ -1385,10 +1462,17 @@ function renderRevByCourse(stats){
   });
 }
 function renderDailyEnroll(stats){
-  destroyChart('dailyEnroll');
   const ctx = document.getElementById('chartDailyEnroll');
+  if(!ctx) return;
   const labels = stats.dailyAgg.map(d=>fmtDateShort(d.date));
   const values = stats.dailyAgg.map(d=>d.students);
+  if(charts.dailyEnroll && window._isSilentRefresh){
+    charts.dailyEnroll.data.labels = labels;
+    charts.dailyEnroll.data.datasets[0].data = values;
+    charts.dailyEnroll.update('none');
+    return;
+  }
+  destroyChart('dailyEnroll');
   charts.dailyEnroll = new Chart(ctx, {
     type:'bar',
     data:{ labels, datasets:[{ data: values, backgroundColor: COLORS.orange, borderRadius:6, maxBarThickness:30 }] },
@@ -1962,10 +2046,726 @@ function setTheme(dark){
 }
 function toggleTheme(){ setTheme(!isDarkTheme); }
 
+/* ==========================================================================
+   USER MANAGEMENT MODULE (RBAC & SECURE LOCAL DIRECTORY)
+   ========================================================================== */
+const UserManager = (function(){
+  const STORAGE_KEY = 'ukpda_users_store';
+  const DEFAULT_USERS = [
+    {
+      id: 'usr_admin',
+      username: 'admin',
+      name: 'System Administrator',
+      email: 'admin@ukpda.com',
+      password: 'admin',
+      role: 'admin',
+      photo: '',
+      createdAt: '2026-09-01'
+    },
+    {
+      id: 'usr_user',
+      username: 'user',
+      name: 'Standard User',
+      email: 'user@ukpda.com',
+      password: 'user123',
+      role: 'user',
+      photo: '',
+      createdAt: '2026-09-01'
+    }
+  ];
+
+  function getUsers(){
+    try {
+      const data = localStorage.getItem(STORAGE_KEY);
+      if(!data){
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(DEFAULT_USERS));
+        return DEFAULT_USERS;
+      }
+      const users = JSON.parse(data);
+      // Guarantee primary immutable admin account exists
+      if(!users.some(u => (u.username||'').toLowerCase() === 'admin')){
+        users.unshift(DEFAULT_USERS[0]);
+        saveUsers(users);
+      }
+      return users;
+    } catch(e){
+      return DEFAULT_USERS;
+    }
+  }
+
+  function saveUsers(users){
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(users));
+      if(window.AppPresenceBus) window.AppPresenceBus.broadcast('USERS_UPDATED');
+    } catch(e){
+      console.error('Failed to save users:', e);
+    }
+  }
+
+  function findUser(identifier){
+    if(!identifier) return null;
+    const norm = identifier.trim().toLowerCase();
+    const users = getUsers();
+    return users.find(u => (u.username||'').toLowerCase() === norm || (u.email||'').toLowerCase() === norm) || null;
+  }
+
+  function addUser({ name, username, email, password, role, photo }){
+    const cleanName = (name || '').trim();
+    const normUser  = (username || '').trim().toLowerCase();
+    const normEmail = (email || '').trim().toLowerCase();
+
+    if(!cleanName) return { success: false, error: 'Full Name is required.' };
+    if(!normUser)  return { success: false, error: 'Username is required.' };
+    if(!normEmail || !normEmail.includes('@')) return { success: false, error: 'A valid email address is required.' };
+    if(!password || password.length < 3) return { success: false, error: 'Password must be at least 3 characters.' };
+
+    const users = getUsers();
+    if(users.some(u => (u.username||'').toLowerCase() === normUser)){
+      return { success: false, error: 'A user with the username "' + normUser + '" already exists.' };
+    }
+    if(users.some(u => (u.email||'').toLowerCase() === normEmail)){
+      return { success: false, error: 'A user with the email "' + normEmail + '" already exists.' };
+    }
+
+    const newUser = {
+      id: 'usr_' + Math.random().toString(36).substring(2, 9),
+      username: normUser,
+      name: cleanName,
+      email: normEmail,
+      password: password,
+      role: role === 'admin' ? 'admin' : 'user',
+      photo: photo || '',
+      createdAt: new Date().toISOString().slice(0, 10)
+    };
+
+    users.push(newUser);
+    saveUsers(users);
+    return { success: true, user: newUser };
+  }
+
+  function deleteUser(id, activeUserId){
+    if(id === 'usr_admin'){
+      return { success: false, error: 'The primary system admin account is permanent and cannot be deleted.' };
+    }
+    if(id === activeUserId){
+      return { success: false, error: 'You cannot delete your own active session account.' };
+    }
+    const users = getUsers();
+    const filtered = users.filter(u => u.id !== id);
+    if(filtered.length === users.length){
+      return { success: false, error: 'User not found.' };
+    }
+    saveUsers(filtered);
+    return { success: true };
+  }
+
+  // Automatic 128x128 canvas image compressor to prevent LocalStorage QuotaExceededError crashes
+  function compressImage(file, callback){
+    if(!file || !file.type.startsWith('image/')){
+      callback(null);
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = function(e){
+      const img = new Image();
+      img.onload = function(){
+        const size = 128;
+        const canvas = document.createElement('canvas');
+        canvas.width = size;
+        canvas.height = size;
+        const ctx = canvas.getContext('2d');
+        const scale = Math.max(size / img.width, size / img.height);
+        const w = img.width * scale;
+        const h = img.height * scale;
+        ctx.drawImage(img, (size - w) / 2, (size - h) / 2, w, h);
+        const dataUrl = canvas.toDataURL('image/jpeg', 0.82);
+        callback(dataUrl);
+      };
+      img.onerror = () => callback(null);
+      img.src = e.target.result;
+    };
+    reader.onerror = () => callback(null);
+    reader.readAsDataURL(file);
+  }
+
+  return {
+    getUsers,
+    saveUsers,
+    findUser,
+    addUser,
+    deleteUser,
+    compressImage
+  };
+})();
+
+/* ==========================================================================
+   CACHE INVALIDATION MANAGER
+   ========================================================================== */
+const CacheManager = (function(){
+  const CACHE_KEY = 'ukpda_dashboard_cache';
+  function clear(){
+    try {
+      localStorage.removeItem(CACHE_KEY);
+      sessionStorage.removeItem(CACHE_KEY);
+    } catch(e){}
+    _lastDataFingerprint = '';
+  }
+  return { clear };
+})();
+
+/* ==========================================================================
+   AUTHENTICATION SERVICE (STRICT 1-HOUR TOKEN LIFECYCLE & ROUTE GUARD)
+   ========================================================================== */
+const AuthService = (function(){
+  const SESSION_KEY = 'ukpda_auth_session';
+  const TOKEN_LIFETIME_MS = 3600000; // 1 hour token expiration
+  let _sessionCheckTimer = null;
+  let _activeSyncInterval = null;
+
+  function getSession(){
+    try {
+      let raw = localStorage.getItem(SESSION_KEY) || sessionStorage.getItem(SESSION_KEY);
+      if(!raw) return null;
+      const session = JSON.parse(raw);
+      if(!session || !session.expiresAt || !session.user){
+        clearSession();
+        return null;
+      }
+      if(Date.now() >= session.expiresAt){
+        clearSession();
+        return null;
+      }
+      return session;
+    } catch(e){
+      clearSession();
+      return null;
+    }
+  }
+
+  function setSession(session, remember){
+    try {
+      clearSession();
+      const raw = JSON.stringify(session);
+      if(remember){
+        localStorage.setItem(SESSION_KEY, raw);
+      } else {
+        sessionStorage.setItem(SESSION_KEY, raw);
+      }
+    } catch(e){}
+  }
+
+  function clearSession(){
+    try {
+      localStorage.removeItem(SESSION_KEY);
+      sessionStorage.removeItem(SESSION_KEY);
+      localStorage.removeItem('ukpda_ilc_auth');
+      sessionStorage.removeItem('ukpda_ilc_auth');
+      localStorage.removeItem('dashboardUser');
+      sessionStorage.removeItem('dashboardUser');
+    } catch(e){}
+  }
+
+  function isAuthenticated(){
+    return getSession() !== null;
+  }
+
+  function getCurrentUser(){
+    const s = getSession();
+    return s ? s.user : null;
+  }
+
+  function startSessionTimer(){
+    if(_sessionCheckTimer) clearInterval(_sessionCheckTimer);
+    _sessionCheckTimer = setInterval(updateSessionCountdown, 10000);
+    updateSessionCountdown();
+  }
+
+  function updateSessionCountdown(){
+    const s = getSession();
+    const badge = document.getElementById('sessionCountdownBadge');
+    if(!s){
+      if(document.body.classList.contains('logged-in')){
+        handleExpiredSession();
+      }
+      return;
+    }
+    const remMs = s.expiresAt - Date.now();
+    if(remMs <= 0){
+      handleExpiredSession();
+      return;
+    }
+    const mins = Math.max(1, Math.ceil(remMs / 60000));
+    if(badge) badge.textContent = mins + 'm';
+  }
+
+  function handleExpiredSession(){
+    logout('Your session has expired (1 hour limit). Please sign in again.');
+  }
+
+  // Strict Navigation Guard: no URL manipulation can bypass the login screen
+  function enforceRouteGuard(){
+    if(!isAuthenticated()){
+      if(window.location.hash || window.location.search){
+        try {
+          history.replaceState(null, '', window.location.pathname);
+        } catch(e){}
+      }
+      document.body.classList.remove('logged-in');
+      document.body.classList.remove('role-admin');
+      document.body.classList.remove('role-user');
+      const overlay = document.getElementById('loginOverlay');
+      const bg = document.getElementById('bg');
+      if(overlay){ overlay.style.display = 'flex'; overlay.classList.remove('hide'); }
+      if(bg){ bg.style.display = 'block'; bg.classList.remove('hide'); }
+      return false;
+    }
+    return true;
+  }
+
+  function applyRoleUI(user){
+    if(!user) return;
+    const isAdmin = user.role === 'admin';
+    document.body.classList.toggle('role-admin', isAdmin);
+    document.body.classList.toggle('role-user', !isAdmin);
+
+    const navUsers = document.getElementById('navManageUsers');
+    const navAgents = document.getElementById('navManageAgents');
+    const udmUsers = document.getElementById('udmManageUsersBtn');
+    const expBtn = document.getElementById('exportBtn');
+
+    if(navUsers) navUsers.style.display = isAdmin ? 'flex' : 'none';
+    if(navAgents) navAgents.style.display = isAdmin ? 'flex' : 'none';
+    if(udmUsers) udmUsers.style.display = isAdmin ? 'flex' : 'none';
+    if(expBtn) expBtn.style.display = isAdmin ? 'inline-flex' : 'none';
+
+    // Update user header chip and dropdown
+    const topName = document.getElementById('topNavUserName');
+    const topRole = document.getElementById('topNavUserRole');
+    const topAvatar = document.getElementById('topNavAvatar');
+    const dropName = document.getElementById('dropdownUserName');
+    const dropEmail = document.getElementById('dropdownUserEmail');
+    const dropBadge = document.getElementById('dropdownUserBadge');
+
+    const displayName = user.name || user.username;
+    if(topName) topName.textContent = displayName;
+    if(topRole) topRole.textContent = isAdmin ? 'Admin' : 'Analyst';
+    if(dropName) dropName.textContent = displayName;
+    if(dropEmail) dropEmail.textContent = user.email || '';
+    if(dropBadge){
+      dropBadge.textContent = isAdmin ? 'ADMIN' : 'USER (READ-ONLY)';
+      dropBadge.className = 'udm-badge ' + (isAdmin ? 'admin' : 'user');
+    }
+    if(topAvatar){
+      if(user.photo){
+        topAvatar.innerHTML = '<img src="' + escapeHtml(user.photo) + '" alt="' + escapeHtml(displayName) + '" style="width:100%;height:100%;border-radius:50%;object-fit:cover;">';
+      } else {
+        topAvatar.innerHTML = escapeHtml(initials(displayName));
+      }
+    }
+  }
+
+  function login(usernameOrEmail, password, remember){
+    const user = UserManager.findUser(usernameOrEmail);
+    if(!user){
+      return { success: false, error: 'Username or email not recognized.' };
+    }
+    if(user.password !== password){
+      return { success: false, error: 'Invalid password.' };
+    }
+
+    const issuedAt = Date.now();
+    const session = {
+      token: 'tok_' + Math.random().toString(36).substring(2, 10) + Date.now(),
+      user: {
+        id: user.id,
+        username: user.username,
+        name: user.name,
+        email: user.email,
+        role: user.role,
+        photo: user.photo || ''
+      },
+      issuedAt: issuedAt,
+      expiresAt: issuedAt + TOKEN_LIFETIME_MS
+    };
+
+    setSession(session, remember);
+    document.body.classList.add('logged-in');
+    applyRoleUI(session.user);
+    startSessionTimer();
+
+    if(window.AppPresenceBus){
+      window.AppPresenceBus.broadcast('AUTH_CHANGED', { user: session.user });
+    }
+
+    const overlay = document.getElementById('loginOverlay');
+    const bg = document.getElementById('bg');
+    if(overlay){
+      overlay.classList.add('hide');
+      setTimeout(()=>{ overlay.style.display = 'none'; }, 600);
+    }
+    if(bg){
+      bg.classList.add('hide');
+      setTimeout(()=>{ bg.style.display = 'none'; }, 600);
+    }
+
+    startDataSync();
+    return { success: true, user: session.user };
+  }
+
+  function logout(reasonMessage){
+    clearSession();
+    CacheManager.clear();
+    RAW_DATA = [];
+    CPD_DATA = [];
+    PHLEB_DATA = [];
+
+    if(_sessionCheckTimer) clearInterval(_sessionCheckTimer);
+    if(_activeSyncInterval) clearInterval(_activeSyncInterval);
+    _activeSyncInterval = null;
+
+    document.body.classList.remove('logged-in', 'role-admin', 'role-user');
+    enforceRouteGuard();
+
+    const errorBanner = document.getElementById('errorBanner');
+    const errorText = document.getElementById('errorText');
+    if(reasonMessage && errorBanner && errorText){
+      errorText.textContent = reasonMessage;
+      errorBanner.classList.add('show');
+    }
+
+    if(window.AppPresenceBus){
+      window.AppPresenceBus.broadcast('AUTH_LOGOUT');
+    }
+  }
+
+  function startDataSync(){
+    if(_activeSyncInterval) clearInterval(_activeSyncInterval);
+    if(!_hasLoadedOnce){
+      if(window.INITIAL_DATA && Array.isArray(window.INITIAL_DATA.sales) && window.INITIAL_DATA.sales.length > 0){
+        RAW_DATA = sanitizeAndDeduplicateSales(window.INITIAL_DATA.sales);
+        CPD_DATA = sanitizeAndDeduplicateCpd(Array.isArray(window.INITIAL_DATA.cpd) ? window.INITIAL_DATA.cpd : []);
+        PHLEB_DATA = Array.isArray(window.INITIAL_DATA.phleb) ? window.INITIAL_DATA.phleb : [];
+        _hasLoadedOnce = true;
+        finishInit();
+      } else {
+        loadData(false);
+      }
+    }
+    _activeSyncInterval = setInterval(() => {
+      if(isAuthenticated()){
+        loadData(true); // silent background refresh
+      }
+    }, REFRESH_INTERVAL_MS);
+  }
+
+  return {
+    getSession,
+    isAuthenticated,
+    getCurrentUser,
+    login,
+    logout,
+    enforceRouteGuard,
+    applyRoleUI,
+    startSessionTimer,
+    startDataSync
+  };
+})();
+
+/* ==========================================================================
+   SLIDE BUS & APP PRESENCE TRACKER (CROSS-TAB SYNCHRONIZATION)
+   ========================================================================== */
+const AppPresenceBus = (function(){
+  const BUS_NAME = 'ukpda_app_bus';
+  const TABS_KEY = 'ukpda_open_tabs_window';
+  const TAB_TIMEOUT_MS = 7500;
+  const currentTabId = 'tab_' + Math.random().toString(36).substring(2, 9);
+  let channel = null;
+
+  try {
+    if(typeof BroadcastChannel !== 'undefined'){
+      channel = new BroadcastChannel(BUS_NAME);
+    }
+  } catch(e){}
+
+  function broadcast(type, payload){
+    if(channel){
+      try { channel.postMessage({ type, payload, tabId: currentTabId, time: Date.now() }); } catch(e){}
+    }
+    try {
+      localStorage.setItem('ukpda_bus_event', JSON.stringify({ type, payload, tabId: currentTabId, time: Date.now() }));
+    } catch(e){}
+  }
+
+  function handleEvent(type, payload, tabId){
+    if(tabId === currentTabId) return;
+    if(type === 'AUTH_LOGOUT'){
+      AuthService.logout('Logged out from another tab.');
+    } else if(type === 'AUTH_CHANGED'){
+      const s = AuthService.getSession();
+      if(s && s.user){
+        document.body.classList.add('logged-in');
+        AuthService.applyRoleUI(s.user);
+      } else {
+        AuthService.enforceRouteGuard();
+      }
+    } else if(type === 'USERS_UPDATED'){
+      renderUserMgmtTable();
+    }
+  }
+
+  function heartbeat(){
+    try {
+      const now = Date.now();
+      let tabs = {};
+      try { tabs = JSON.parse(localStorage.getItem(TABS_KEY) || '{}'); } catch(e){}
+      tabs[currentTabId] = now;
+      const activeTabs = {};
+      let count = 0;
+      for(const id in tabs){
+        if(now - tabs[id] < TAB_TIMEOUT_MS){
+          activeTabs[id] = tabs[id];
+          count++;
+        }
+      }
+      localStorage.setItem(TABS_KEY, JSON.stringify(activeTabs));
+      updateTabChip(count);
+    } catch(e){}
+  }
+
+  function updateTabChip(count){
+    const chip = document.getElementById('openTabsChip');
+    const label = document.getElementById('openTabsCount');
+    if(!chip || !label) return;
+    label.textContent = count <= 1 ? '1 tab active' : count + ' tabs active';
+  }
+
+  function init(){
+    if(channel){
+      channel.onmessage = function(e){
+        if(e && e.data){
+          handleEvent(e.data.type, e.data.payload, e.data.tabId);
+        }
+      };
+    }
+    window.addEventListener('storage', function(e){
+      if(e.key === 'ukpda_bus_event' && e.newValue){
+        try {
+          const data = JSON.parse(e.newValue);
+          handleEvent(data.type, data.payload, data.tabId);
+        } catch(err){}
+      }
+    });
+    window.addEventListener('beforeunload', function(){
+      try {
+        let tabs = JSON.parse(localStorage.getItem(TABS_KEY) || '{}');
+        delete tabs[currentTabId];
+        localStorage.setItem(TABS_KEY, JSON.stringify(tabs));
+      } catch(e){}
+    });
+    setInterval(heartbeat, 3000);
+    heartbeat();
+  }
+
+  return { init, broadcast, getTabId: () => currentTabId };
+})();
+
+/* ==========================================================================
+   USER MANAGEMENT MODAL CONTROLLER
+   ========================================================================== */
+function renderUserMgmtTable(){
+  const tb = document.getElementById('tbUserManagement');
+  if(!tb) return;
+  const countBadge = document.getElementById('userCountBadge');
+  const searchInput = document.getElementById('userListSearch');
+  const query = searchInput ? searchInput.value.trim().toLowerCase() : '';
+
+  const users = UserManager.getUsers();
+  const current = AuthService.getCurrentUser();
+  const currentId = current ? current.id : '';
+
+  let filtered = users;
+  if(query){
+    filtered = users.filter(u =>
+      (u.name||'').toLowerCase().includes(query) ||
+      (u.username||'').toLowerCase().includes(query) ||
+      (u.email||'').toLowerCase().includes(query) ||
+      (u.role||'').toLowerCase().includes(query)
+    );
+  }
+
+  if(countBadge) countBadge.textContent = String(users.length);
+
+  if(!filtered.length){
+    tb.innerHTML = '<tr><td colspan="6" style="text-align:center;color:var(--ink-3);padding:24px;">No matching users found</td></tr>';
+    return;
+  }
+
+  tb.innerHTML = filtered.map(u => {
+    const isPrimaryAdmin = u.id === 'usr_admin';
+    const isSelf = u.id === currentId;
+    const canDelete = !isPrimaryAdmin && !isSelf;
+    const deleteTitle = isPrimaryAdmin
+      ? 'Protected primary admin account'
+      : isSelf
+      ? 'Cannot delete your active account'
+      : 'Delete user account';
+
+    const avatarHtml = u.photo
+      ? '<img src="' + escapeHtml(u.photo) + '" class="user-table-avatar" alt="' + escapeHtml(u.name) + '">'
+      : '<span class="user-table-avatar">' + escapeHtml(initials(u.name || u.username)) + '</span>';
+
+    return '<tr data-user-id="' + escapeHtml(u.id) + '">' +
+      '<td>' + avatarHtml + '<strong style="vertical-align:middle;">' + escapeHtml(u.name) + '</strong>' + (isSelf ? ' <span style="font-size:10px;color:var(--teal);">(You)</span>' : '') + '</td>' +
+      '<td><code>' + escapeHtml(u.username) + '</code></td>' +
+      '<td>' + escapeHtml(u.email) + '</td>' +
+      '<td><span class="role-badge ' + (u.role === 'admin' ? 'admin' : 'user') + '">' + (u.role === 'admin' ? 'ADMIN' : 'USER') + '</span></td>' +
+      '<td style="color:var(--ink-3);font-size:12px;">' + escapeHtml(u.createdAt || '—') + '</td>' +
+      '<td style="text-align:center;">' +
+        '<button class="btn-user-delete" data-id="' + escapeHtml(u.id) + '" title="' + escapeHtml(deleteTitle) + '" ' + (canDelete ? '' : 'disabled') + '>' +
+          (isPrimaryAdmin ? 'Protected' : 'Delete') +
+        '</button>' +
+      '</td>' +
+    '</tr>';
+  }).join('');
+
+  // Bind delete handlers
+  tb.querySelectorAll('.btn-user-delete:not([disabled])').forEach(btn => {
+    btn.addEventListener('click', function(){
+      const userId = this.getAttribute('data-id');
+      const targetUser = users.find(u => u.id === userId);
+      const name = targetUser ? targetUser.name : 'this user';
+      const confirmed = window.confirm('Are you sure you want to delete the user "' + name + '"?\n\nClick OK for Yes or Cancel for No.');
+      if(!confirmed) return;
+      const res = UserManager.deleteUser(userId, currentId);
+      if(res.success){
+        renderUserMgmtTable();
+      } else {
+        alert(res.error);
+      }
+    });
+  });
+}
+
+function setupUserManagement(){
+  const overlay = document.getElementById('userMgmtOverlay');
+  const openNavBtn = document.getElementById('navManageUsers');
+  const openUdmBtn = document.getElementById('udmManageUsersBtn');
+  const closeBtn = document.getElementById('userMgmtCloseBtn');
+  const alertEl = document.getElementById('userMgmtAlert');
+
+  function openModal(){
+    const user = AuthService.getCurrentUser();
+    if(!user || user.role !== 'admin'){
+      alert('Access restricted: Administrator role required.');
+      return;
+    }
+    renderUserMgmtTable();
+    if(overlay) overlay.classList.add('open');
+  }
+
+  function closeModal(){
+    if(overlay) overlay.classList.remove('open');
+    if(alertEl){ alertEl.style.display = 'none'; alertEl.textContent = ''; }
+  }
+
+  if(openNavBtn) openNavBtn.addEventListener('click', openModal);
+  if(openUdmBtn) openUdmBtn.addEventListener('click', openModal);
+  if(closeBtn) closeBtn.addEventListener('click', closeModal);
+  if(overlay){
+    overlay.addEventListener('click', function(e){
+      if(e.target === overlay) closeModal();
+    });
+  }
+
+  // Profile image upload preview
+  const avatarWrap = document.getElementById('userAvatarPreviewWrap');
+  const photoInput = document.getElementById('userPhotoInput');
+  const previewImg = document.getElementById('userAvatarPreviewImg');
+  const previewPlace = document.getElementById('userAvatarPreviewPlaceholder');
+  let _uploadedPhotoBase64 = '';
+
+  if(avatarWrap && photoInput){
+    avatarWrap.addEventListener('click', () => photoInput.click());
+    photoInput.addEventListener('change', function(){
+      const file = this.files[0];
+      if(!file) return;
+      UserManager.compressImage(file, function(dataUrl){
+        if(dataUrl){
+          _uploadedPhotoBase64 = dataUrl;
+          if(previewImg){ previewImg.src = dataUrl; previewImg.style.display = 'block'; }
+          if(previewPlace){ previewPlace.style.display = 'none'; }
+        }
+      });
+    });
+  }
+
+  // Password toggle
+  const togglePassBtn = document.getElementById('toggleNewPassVis');
+  const passInput = document.getElementById('newPassword');
+  if(togglePassBtn && passInput){
+    togglePassBtn.addEventListener('click', function(){
+      const isPass = passInput.type === 'password';
+      passInput.type = isPass ? 'text' : 'password';
+    });
+  }
+
+  // Add User Form Submission
+  const form = document.getElementById('addUserForm');
+  if(form){
+    form.addEventListener('submit', function(e){
+      e.preventDefault();
+      if(alertEl){ alertEl.style.display = 'none'; alertEl.className = 'user-mgmt-alert'; }
+
+      const name = document.getElementById('newFullName').value;
+      const username = document.getElementById('newUsername').value;
+      const email = document.getElementById('newEmail').value;
+      const password = document.getElementById('newPassword').value;
+      const role = document.getElementById('newRoleSelect').value;
+
+      const res = UserManager.addUser({
+        name,
+        username,
+        email,
+        password,
+        role,
+        photo: _uploadedPhotoBase64
+      });
+
+      if(!res.success){
+        if(alertEl){
+          alertEl.textContent = res.error;
+          alertEl.classList.add('error');
+          alertEl.style.display = 'block';
+        }
+        return;
+      }
+
+      // Success
+      form.reset();
+      _uploadedPhotoBase64 = '';
+      if(previewImg){ previewImg.style.display = 'none'; previewImg.src = ''; }
+      if(previewPlace){ previewPlace.style.display = 'block'; }
+      if(alertEl){
+        alertEl.textContent = 'User "' + res.user.name + '" successfully created with role ' + (res.user.role === 'admin' ? 'ADMIN' : 'USER') + '!';
+        alertEl.classList.add('success');
+        alertEl.style.display = 'block';
+        setTimeout(() => { if(alertEl) alertEl.style.display = 'none'; }, 4000);
+      }
+      renderUserMgmtTable();
+    });
+  }
+
+  // User search input
+  const searchInput = document.getElementById('userListSearch');
+  if(searchInput){
+    searchInput.addEventListener('input', debounce(renderUserMgmtTable, 180));
+  }
+}
+
+/* ==========================================================================
+   SETUP AUTH & LOGIN FORM
+   ========================================================================== */
 function setupAuth(){
-  const overlay     = document.getElementById('loginOverlay');
-  const bg          = document.getElementById('bg');
-  const card        = document.getElementById('loginCard');
   const form        = document.getElementById('loginForm');
   const usernameEl  = document.getElementById('username');
   const passwordEl  = document.getElementById('password');
@@ -1980,8 +2780,6 @@ function setupAuth(){
   const EYE_OPEN  = '<path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7-11-7-11-7z"/><circle cx="12" cy="12" r="3"/>';
   const EYE_SLASH = '<path d="M17.94 17.94A10.94 10.94 0 0 1 12 19c-7 0-11-7-11-7a21.6 21.6 0 0 1 5.06-5.94M9.9 4.24A10.94 10.94 0 0 1 12 4c7 0 11 7 11 7a21.6 21.6 0 0 1-2.61 3.68M14.12 14.12a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/>';
 
-  const STORAGE_KEY = 'ukpda_ilc_auth';
-
   if (toggleVis && passwordEl && eyeIcon){
     toggleVis.addEventListener('click', function(e){
       e.preventDefault();
@@ -1995,6 +2793,7 @@ function setupAuth(){
   function showError(msg){
     if (errorText) errorText.textContent = msg;
     if (errorBanner) errorBanner.classList.add('show');
+    const card = document.getElementById('loginCard');
     if (card){
       card.classList.remove('shake');
       void card.offsetWidth;
@@ -2006,48 +2805,14 @@ function setupAuth(){
     if (errorBanner) errorBanner.classList.remove('show');
   }
 
-  function enterDashboard(){
-    if (overlay){
-      overlay.classList.add('hide');
-      setTimeout(function(){ overlay.style.display = 'none'; }, 700);
-    }
-    if (bg){
-      bg.classList.add('hide');
-      setTimeout(function(){ bg.style.display = 'none'; }, 700);
-    }
-  }
-
-  function checkExistingSession(){
-    let saved = false;
-    try {
-      saved = localStorage.getItem(STORAGE_KEY) === 'true' || sessionStorage.getItem(STORAGE_KEY) === 'true';
-      const savedUser = localStorage.getItem('dashboardUser') || sessionStorage.getItem('dashboardUser');
-      if (savedUser){
-        const topUser = document.getElementById('topNavUserName');
-        const dropUser = document.getElementById('dropdownUserName');
-        if (topUser) topUser.textContent = savedUser.charAt(0).toUpperCase() + savedUser.slice(1);
-        if (dropUser) dropUser.textContent = savedUser.charAt(0).toUpperCase() + savedUser.slice(1) + ' (Admin)';
-      }
-    } catch(e){}
-
-    if (saved) {
-      if (overlay) overlay.style.display = 'none';
-      if (bg) bg.style.display = 'none';
-    }
-  }
-
   if (form){
     form.addEventListener('submit', function(e){
       e.preventDefault();
       clearError();
 
-      const user = usernameEl ? usernameEl.value.trim() : '';
+      const userIdent = usernameEl ? usernameEl.value.trim() : '';
       const pass = passwordEl ? passwordEl.value : '';
-      const expectedPass = window.AUTH_PASSWORD || 'admin';
-      const expectedUser = window.AUTH_USERNAME || 'admin';
-
-      const validUser = (user.toLowerCase() === expectedUser.toLowerCase()) || (user.toLowerCase() === 'admin');
-      const validPass = (pass === expectedPass) || (pass === 'admin');
+      const remember = rememberEl ? rememberEl.checked : true;
 
       if (signInBtn){
         signInBtn.classList.add('loading');
@@ -2055,12 +2820,14 @@ function setupAuth(){
       }
 
       setTimeout(function(){
-        if (!validUser || !validPass){
+        const res = AuthService.login(userIdent, pass, remember);
+
+        if (!res.success){
           if (signInBtn){
             signInBtn.classList.remove('loading');
             signInBtn.disabled = false;
           }
-          showError(!validUser ? 'Username not recognized.' : 'Invalid password.');
+          showError(res.error);
           return;
         }
 
@@ -2073,29 +2840,11 @@ function setupAuth(){
           }
           signInBtn.classList.remove('loading');
         }
-
-        const remember = rememberEl ? rememberEl.checked : true;
-        try {
-          if (remember){
-            localStorage.setItem(STORAGE_KEY, 'true');
-            localStorage.setItem('dashboardUser', user);
-          } else {
-            sessionStorage.setItem(STORAGE_KEY, 'true');
-            sessionStorage.setItem('dashboardUser', user);
-          }
-        } catch(e){}
-
-        const topUser = document.getElementById('topNavUserName');
-        const dropUser = document.getElementById('dropdownUserName');
-        if (topUser) topUser.textContent = user.charAt(0).toUpperCase() + user.slice(1);
-        if (dropUser) dropUser.textContent = user.charAt(0).toUpperCase() + user.slice(1) + ' (Admin)';
-
-        setTimeout(enterDashboard, 500);
-      }, 600);
+      }, 400);
     });
   }
 
-  // User menu & sign out
+  // User dropdown menu & sign out
   const userChip = document.getElementById('userChipBtn');
   const userDropdown = document.getElementById('userDropdownMenu');
   const signOutBtn = document.getElementById('udmSignOutBtn');
@@ -2117,13 +2866,6 @@ function setupAuth(){
   if (signOutBtn){
     signOutBtn.addEventListener('click', function(e){
       e.stopPropagation();
-      try {
-        localStorage.removeItem(STORAGE_KEY);
-        localStorage.removeItem('dashboardUser');
-        sessionStorage.removeItem(STORAGE_KEY);
-        sessionStorage.removeItem('dashboardUser');
-      } catch(e){}
-
       if (userDropdown) userDropdown.style.display = 'none';
       if (usernameEl) usernameEl.value = '';
       if (passwordEl) passwordEl.value = '';
@@ -2134,16 +2876,7 @@ function setupAuth(){
         if (btnText) btnText.textContent = 'Sign In';
       }
       clearError();
-
-      if (bg){
-        bg.style.display = 'block';
-        bg.classList.remove('hide');
-      }
-      if (overlay){
-        overlay.style.display = 'flex';
-        void overlay.offsetWidth;
-        overlay.classList.remove('hide');
-      }
+      AuthService.logout('You have signed out.');
     });
   }
 
@@ -2153,11 +2886,33 @@ function setupAuth(){
     setTimeout(function(){ charBubble.style.opacity = '1'; }, 900);
   }
 
-  checkExistingSession();
+  // Strict URL guard listeners to prevent bypass
+  window.addEventListener('hashchange', AuthService.enforceRouteGuard);
+  window.addEventListener('popstate', AuthService.enforceRouteGuard);
+
+  // Check initial session
+  const activeSession = AuthService.getSession();
+  if(activeSession && activeSession.user){
+    document.body.classList.add('logged-in');
+    AuthService.applyRoleUI(activeSession.user);
+    AuthService.startSessionTimer();
+    const overlay = document.getElementById('loginOverlay');
+    const bg = document.getElementById('bg');
+    if(overlay) overlay.style.display = 'none';
+    if(bg) bg.style.display = 'none';
+    AuthService.startDataSync();
+  } else {
+    AuthService.enforceRouteGuard();
+  }
 }
 
+/* ==========================================================================
+   APPLICATION INITIALIZATION
+   ========================================================================== */
 function init(){
+  AppPresenceBus.init();
   setupAuth();
+  setupUserManagement();
   setupSidebarNav();
   setupFilterToggle();
   setupScrollShrink();
@@ -2174,18 +2929,6 @@ function init(){
   document.body.classList.toggle('light-mode', !savedDark);
   syncThemeIcons(savedDark);
   applyThemeColors(savedDark);
-
-  document.getElementById('sbSyncInfo').textContent = 'Loading live data…';
-  if (window.INITIAL_DATA && Array.isArray(window.INITIAL_DATA.sales) && window.INITIAL_DATA.sales.length > 0) {
-    RAW_DATA = sanitizeAndDeduplicateSales(window.INITIAL_DATA.sales);
-    CPD_DATA = sanitizeAndDeduplicateCpd(Array.isArray(window.INITIAL_DATA.cpd) ? window.INITIAL_DATA.cpd : []);
-    PHLEB_DATA = Array.isArray(window.INITIAL_DATA.phleb) ? window.INITIAL_DATA.phleb : [];
-    _hasLoadedOnce = true;
-    finishInit();
-  } else {
-    loadData();
-  }
-  setInterval(loadData, REFRESH_INTERVAL_MS);
 }
 
 // Runs once, the first time RAW_DATA successfully loads from the sheet
