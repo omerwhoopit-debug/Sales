@@ -2047,7 +2047,7 @@ function setTheme(dark){
 function toggleTheme(){ setTheme(!isDarkTheme); }
 
 /* ==========================================================================
-   USER MANAGEMENT MODULE (RBAC & SECURE LOCAL DIRECTORY)
+   USER MANAGEMENT MODULE (RBAC & SECURE CODE-STORE DIRECTORY)
    ========================================================================== */
 const UserManager = (function(){
   const STORAGE_KEY = 'ukpda_users_store';
@@ -2074,31 +2074,65 @@ const UserManager = (function(){
     }
   ];
 
-  function getUsers(){
-    try {
-      const data = localStorage.getItem(STORAGE_KEY);
-      if(!data){
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(DEFAULT_USERS));
-        return DEFAULT_USERS;
-      }
-      const users = JSON.parse(data);
-      // Guarantee primary immutable admin account exists
-      if(!users.some(u => (u.username||'').toLowerCase() === 'admin')){
-        users.unshift(DEFAULT_USERS[0]);
-        saveUsers(users);
-      }
-      return users;
-    } catch(e){
-      return DEFAULT_USERS;
+  let _activeUsers = null;
+
+  function getBaseUsers(){
+    if (typeof window !== 'undefined' && Array.isArray(window.UKPDA_USERS_DATABASE) && window.UKPDA_USERS_DATABASE.length > 0) {
+      return JSON.parse(JSON.stringify(window.UKPDA_USERS_DATABASE));
     }
+    return JSON.parse(JSON.stringify(DEFAULT_USERS));
+  }
+
+  function getUsers(){
+    if (_activeUsers && Array.isArray(_activeUsers) && _activeUsers.length > 0) {
+      return _activeUsers;
+    }
+
+    const base = getBaseUsers();
+    let stored = null;
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY) || sessionStorage.getItem(STORAGE_KEY);
+      if (raw) stored = JSON.parse(raw);
+    } catch(e){}
+
+    if (Array.isArray(stored) && stored.length > 0) {
+      const merged = [...stored];
+      base.forEach(bu => {
+        if (!merged.some(u => (u.username||'').toLowerCase() === (bu.username||'').toLowerCase())) {
+          merged.push(bu);
+        }
+      });
+      _activeUsers = merged;
+    } else {
+      _activeUsers = base;
+    }
+
+    // Always guarantee primary immutable admin account exists
+    if (!_activeUsers.some(u => (u.username||'').toLowerCase() === 'admin')) {
+      _activeUsers.unshift(DEFAULT_USERS[0]);
+    }
+
+    // Keep window.UKPDA_USERS_DATABASE synchronized
+    if (typeof window !== 'undefined') {
+      window.UKPDA_USERS_DATABASE = _activeUsers;
+    }
+
+    return _activeUsers;
   }
 
   function saveUsers(users){
+    _activeUsers = users;
+    if (typeof window !== 'undefined') {
+      window.UKPDA_USERS_DATABASE = users;
+    }
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(users));
-      if(window.AppPresenceBus) window.AppPresenceBus.broadcast('USERS_UPDATED');
-    } catch(e){
-      console.error('Failed to save users:', e);
+    } catch(e){}
+    try {
+      sessionStorage.setItem(STORAGE_KEY, JSON.stringify(users));
+    } catch(e){}
+    if (window.AppPresenceBus) {
+      window.AppPresenceBus.broadcast('USERS_UPDATED');
     }
   }
 
@@ -2159,7 +2193,41 @@ const UserManager = (function(){
     return { success: true };
   }
 
-  // Automatic 128x128 canvas image compressor to prevent LocalStorage QuotaExceededError crashes
+  function exportUsersJsContent(){
+    const users = getUsers();
+    return '/**\n' +
+      ' * ============================================================================\n' +
+      ' * UKPDA & ILC SALES DASHBOARD — USER DATABASE (users.js)\n' +
+      ' * ============================================================================\n' +
+      ' * Auto-generated store of authorized users, credentials, and roles.\n' +
+      ' * Last updated: ' + new Date().toISOString() + '\n' +
+      ' * ============================================================================\n' +
+      ' */\n\n' +
+      'var UKPDA_USERS_DATABASE = ' + JSON.stringify(users, null, 2) + ';\n\n' +
+      'if (typeof window !== "undefined") {\n' +
+      '  window.UKPDA_USERS_DATABASE = UKPDA_USERS_DATABASE;\n' +
+      '}\n' +
+      'if (typeof module !== "undefined" && module.exports) {\n' +
+      '  module.exports = UKPDA_USERS_DATABASE;\n' +
+      '}\n';
+  }
+
+  function downloadUsersJs(){
+    const content = exportUsersJsContent();
+    const blob = new Blob([content], { type: 'application/javascript;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'users.js';
+    document.body.appendChild(a);
+    a.click();
+    setTimeout(() => {
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    }, 200);
+  }
+
+  // Automatic 128x128 canvas image compressor to prevent storage quota issues
   function compressImage(file, callback){
     if(!file || !file.type.startsWith('image/')){
       callback(null);
@@ -2194,7 +2262,9 @@ const UserManager = (function(){
     findUser,
     addUser,
     deleteUser,
-    compressImage
+    compressImage,
+    exportUsersJsContent,
+    downloadUsersJs
   };
 })();
 
@@ -2746,12 +2816,47 @@ function setupUserManagement(){
       if(previewImg){ previewImg.style.display = 'none'; previewImg.src = ''; }
       if(previewPlace){ previewPlace.style.display = 'block'; }
       if(alertEl){
-        alertEl.textContent = 'User "' + res.user.name + '" successfully created with role ' + (res.user.role === 'admin' ? 'ADMIN' : 'USER') + '!';
-        alertEl.classList.add('success');
+        alertEl.innerHTML = 'User "<strong>' + escapeHtml(res.user.name) + '</strong>" successfully created with role <strong>' + (res.user.role === 'admin' ? 'ADMIN' : 'USER') + '</strong>!<br><span style="font-size:11px;opacity:0.9;">Credentials active immediately. Click "Download users.js" to save to your local project.</span>';
+        alertEl.className = 'user-mgmt-alert success';
         alertEl.style.display = 'block';
-        setTimeout(() => { if(alertEl) alertEl.style.display = 'none'; }, 4000);
+        setTimeout(() => { if(alertEl) alertEl.style.display = 'none'; }, 6000);
       }
       renderUserMgmtTable();
+    });
+  }
+
+  // Bind Download & Copy users.js code store buttons
+  const downloadBtn = document.getElementById('btnDownloadUsersJs');
+  if(downloadBtn){
+    downloadBtn.addEventListener('click', function(){
+      UserManager.downloadUsersJs();
+      if(alertEl){
+        alertEl.innerHTML = 'Downloaded <code>users.js</code>! Replace <code>users.js</code> in your project folder to keep new users permanently.';
+        alertEl.className = 'user-mgmt-alert success';
+        alertEl.style.display = 'block';
+        setTimeout(() => { if(alertEl) alertEl.style.display = 'none'; }, 5000);
+      }
+    });
+  }
+
+  const copyBtn = document.getElementById('btnCopyUsersJs');
+  if(copyBtn){
+    copyBtn.addEventListener('click', function(){
+      const code = UserManager.exportUsersJsContent();
+      if(navigator.clipboard && navigator.clipboard.writeText){
+        navigator.clipboard.writeText(code).then(() => {
+          if(alertEl){
+            alertEl.innerHTML = '<code>users.js</code> code copied to clipboard! Paste it into <code>users.js</code> to persist across all servers.';
+            alertEl.className = 'user-mgmt-alert success';
+            alertEl.style.display = 'block';
+            setTimeout(() => { if(alertEl) alertEl.style.display = 'none'; }, 5000);
+          }
+        }).catch(() => {
+          UserManager.downloadUsersJs();
+        });
+      } else {
+        UserManager.downloadUsersJs();
+      }
     });
   }
 

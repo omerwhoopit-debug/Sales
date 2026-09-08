@@ -132,7 +132,13 @@ def build_bundled_dashboard():
     </script>
     """
 
-    # 4. Inline JavaScript with pre-loaded initial data & auth
+    # 4. Inline users.js (permanent user accounts code file)
+    if os.path.exists("users.js"):
+        with open("users.js", "r", encoding="utf-8") as f:
+            users_js_content = f.read()
+        html = html.replace('<script src="users.js"></script>', f'<script>\n{users_js_content}\n</script>')
+
+    # 5. Inline JavaScript with pre-loaded initial data & auth
     if os.path.exists("script.js"):
         with open("script.js", "r", encoding="utf-8") as f:
             js_content = f.read()
