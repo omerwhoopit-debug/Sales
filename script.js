@@ -1,5 +1,13 @@
 let RAW_DATA = [];
 
+function parseAmount(val) {
+  if (typeof val === 'number') return isNaN(val) ? 0 : val;
+  if (!val) return 0;
+  const cleaned = String(val).replace(/[^0-9.-]/g, '');
+  const num = parseFloat(cleaned);
+  return isNaN(num) ? 0 : num;
+}
+
 function sanitizeSales(rows) {
   if (!Array.isArray(rows)) return [];
   const clean = [];
@@ -13,7 +21,7 @@ function sanitizeSales(rows) {
       lead: r.lead && r.lead.trim() ? r.lead.trim() : 'Direct Sales',
       agent: r.agent && r.agent.trim() ? r.agent.trim() : 'Direct Sale',
       college: college || 'Unknown',
-      amount: Number(r.amount) || 0
+      amount: parseAmount(r.amount)
     });
   }
   return clean;
@@ -40,28 +48,82 @@ const SHEET_API_URL = window.SHEET_API_URL || "https://script.google.com/macros/
 const REFRESH_INTERVAL_MS = 4000; // auto-refresh every 4 seconds to guarantee updates within 5s
 let _hasLoadedOnce = false;
 let _lastDataFingerprint = '';
+let _isSheetFetching = false;
+let _lastFetchRequestId = 0;
+let _lastFetchTimestamp = 0;
 
 function computeDataFingerprint(sales, cpd, phleb){
-  const sLen = sales ? sales.length : 0;
-  const sFirst = sLen && sales[0] ? String(sales[0].order) + String(sales[0].date) : '';
-  const sLast = sLen && sales[sLen-1] ? String(sales[sLen-1].order) + String(sales[sLen-1].date) : '';
-  const cLen = cpd ? cpd.length : 0;
-  const pLen = phleb ? phleb.length : 0;
-  return sLen + '_' + sFirst + '_' + sLast + '_' + cLen + '_' + pLen;
+  const sList = Array.isArray(sales) ? sales : [];
+  const cList = Array.isArray(cpd) ? cpd : [];
+  const pList = Array.isArray(phleb) ? phleb : [];
+
+  const sLen = sList.length;
+  const cLen = cList.length;
+  const pLen = pList.length;
+
+  let salesPence = 0;
+  const midIdx = Math.floor(sLen / 2);
+  const sFirst = sLen && sList[0] ? String(sList[0].order || '') + String(sList[0].agent || '') + String(sList[0].amount || '') : '';
+  const sMid   = sLen && sList[midIdx] ? String(sList[midIdx].order || '') + String(sList[midIdx].agent || '') + String(sList[midIdx].amount || '') : '';
+  const sLast  = sLen && sList[sLen-1] ? String(sList[sLen-1].order || '') + String(sList[sLen-1].agent || '') + String(sList[sLen-1].amount || '') : '';
+
+  for(let i = 0; i < sLen; i++){
+    salesPence += Math.round(parseAmount(sList[i].amount) * 100);
+  }
+
+  let cpdTotal = 0;
+  for(let i = 0; i < cLen; i++){
+    cpdTotal += (Number(cList[i].count) || 0);
+  }
+
+  let phlebTotal = 0;
+  for(let i = 0; i < pLen; i++){
+    phlebTotal += (Number(pList[i].total) || (Number(pList[i].p1)||0) + (Number(pList[i].p2)||0));
+  }
+
+  return `${sLen}_${sFirst}_${sMid}_${sLast}_${salesPence}_${cLen}_${cpdTotal}_${pLen}_${phlebTotal}`;
 }
 
 async function loadData(isSilent = false){
+  // In-flight guard: prevent concurrent overlapping requests & script pile-up
+  if(_isSheetFetching && isSilent){
+    return;
+  }
+  _isSheetFetching = true;
+  const requestId = ++_lastFetchRequestId;
+
   return new Promise((resolve) => {
-    const callbackName = '__sheetDataCb_' + Date.now();
+    const callbackName = '__sheetDataCb_' + Date.now() + '_' + Math.floor(Math.random()*10000);
     let settled = false;
+    let timeoutTimer = null;
+    let scriptEl = null;
 
     const cleanup = () => {
+      if(timeoutTimer) clearTimeout(timeoutTimer);
       delete window[callbackName];
-      if(scriptEl.parentNode) scriptEl.parentNode.removeChild(scriptEl);
+      if(scriptEl && scriptEl.parentNode) scriptEl.parentNode.removeChild(scriptEl);
+      _isSheetFetching = false;
     };
 
-    window[callbackName] = function(data){
+    // 10-second timeout watchdog for hanging connections
+    timeoutTimer = setTimeout(() => {
+      if(settled) return;
       settled = true;
+      console.warn('Sheet data fetch timed out after 10s');
+      cleanup();
+      resolve();
+    }, 10000);
+
+    window[callbackName] = function(data){
+      if(settled) return;
+      settled = true;
+      // Discard stale out-of-order response if a newer fetch was initiated
+      if(requestId < _lastFetchRequestId){
+        cleanup();
+        resolve();
+        return;
+      }
+      _lastFetchTimestamp = Date.now();
       try{
         if(!data || !Array.isArray(data.sales)) throw new Error('Unexpected response shape');
         
@@ -96,10 +158,11 @@ async function loadData(isSilent = false){
             const lastDate = RAW_DATA.length ? (RAW_DATA.map(r=>r.date).sort().slice(-1)[0]) : null;
             if(el) el.textContent = lastDate ? (RAW_DATA.length + ' orders · Synced just now') : 'No data available';
           } else {
-            // Sheet data changed: Update Supabase cache in the background
+            // Sheet data changed: Update Supabase cache in the background (admin or initial load)
             if(typeof SupabaseService !== 'undefined'){
               const sbClient = SupabaseService.getClient();
-              if(sbClient){
+              const curUser = typeof AuthService !== 'undefined' ? AuthService.getCurrentUser() : null;
+              if(sbClient && (!curUser || curUser.role === 'admin')){
                 sbClient.from('dashboard_cache').upsert({
                   id: 'latest',
                   payload: data,
@@ -117,6 +180,10 @@ async function loadData(isSilent = false){
             }
             render();
             window._isSilentRefresh = false;
+
+            if(window.AppPresenceBus){
+              window.AppPresenceBus.broadcast('DATA_UPDATED', { fingerprint: currentFingerprint });
+            }
 
             const el = document.getElementById('sbSyncInfo');
             const lastDate = RAW_DATA.length ? (RAW_DATA.map(r=>r.date).sort().slice(-1)[0]) : null;
@@ -137,10 +204,11 @@ async function loadData(isSilent = false){
     };
 
     const sep = SHEET_API_URL.includes('?') ? '&' : '?';
-    const scriptEl = document.createElement('script');
+    scriptEl = document.createElement('script');
     scriptEl.src = SHEET_API_URL + sep + 'callback=' + callbackName + '&nocache=1&t=' + Date.now();
     scriptEl.onerror = function(){
       if(settled) return;
+      settled = true;
       console.error('Live data sync failed: could not load script');
       if(!_hasLoadedOnce){
         _hasLoadedOnce = true;
@@ -179,16 +247,34 @@ let charts = {};
 let filtered = [];
 let isDarkTheme = true;
 
+function parseLocalDate(iso){
+  if(!iso) return new Date();
+  const dateOnly = String(iso).split('T')[0];
+  const parts = dateOnly.split('-').map(Number);
+  if(parts.length >= 3 && !isNaN(parts[0]) && !isNaN(parts[1]) && !isNaN(parts[2])){
+    return new Date(parts[0], parts[1]-1, parts[2]);
+  }
+  return new Date(iso);
+}
+
 const fmtGBP = n => '£' + Number(n).toLocaleString('en-GB', {maximumFractionDigits:0});
 const fmtGBP2 = n => '£' + Number(n).toLocaleString('en-GB', {minimumFractionDigits:2, maximumFractionDigits:2});
 const fmtNum = n => Number(n).toLocaleString('en-GB');
-const fmtDateShort = iso => { const d = new Date(iso+'T00:00:00'); return d.toLocaleDateString('en-GB',{day:'2-digit',month:'short'}); };
+const fmtDateShort = iso => {
+  if(!iso) return '';
+  const d = parseLocalDate(iso);
+  return d.toLocaleDateString('en-GB',{day:'2-digit',month:'short'});
+};
 const fmtDateDMY = iso => { if(!iso) return ''; const [y,m,d] = iso.split('-'); return d+'/'+m+'/'+y; };
 function syncDateTextFields(){
   document.getElementById('fDateFromText').value = fmtDateDMY(document.getElementById('fDateFrom').value);
   document.getElementById('fDateToText').value = fmtDateDMY(document.getElementById('fDateTo').value);
 }
-const fmtDayName = iso => { const d = new Date(iso+'T00:00:00'); return d.toLocaleDateString('en-GB',{weekday:'long'}); };
+const fmtDayName = iso => {
+  if(!iso) return '';
+  const d = parseLocalDate(iso);
+  return d.toLocaleDateString('en-GB',{weekday:'long'});
+};
 const monthName = (y,m) => new Date(y, m-1, 1).toLocaleDateString('en-GB',{month:'long', year:'numeric'});
 
 function groupBy(arr, keyFn){
@@ -196,7 +282,10 @@ function groupBy(arr, keyFn){
   for(const item of arr){ const k = keyFn(item); if(!map.has(k)) map.set(k, []); map.get(k).push(item); }
   return map;
 }
-function sum(arr, fn){ return arr.reduce((a,b)=>a+fn(b), 0); }
+function sum(arr, fn){
+  const pence = arr.reduce((a, b) => a + Math.round(parseAmount(fn(b)) * 100), 0);
+  return pence / 100;
+}
 function escapeHtml(s){ const d=document.createElement('div'); d.textContent=s; return d.innerHTML; }
 function emptyRow(cols){ return '<tr><td colspan="'+cols+'" style="text-align:center;color:var(--ink-3);padding:22px;">No matching records</td></tr>'; }
 function initials(name){
@@ -2097,6 +2186,24 @@ function setupTopRefresh(){
   });
 }
 
+/* ---------------- Sleep / Background Tab Visibility Watchdog ---------------- */
+function setupVisibilityWatchdog(){
+  document.addEventListener('visibilitychange', ()=>{
+    if(document.visibilityState === 'visible' && typeof AuthService !== 'undefined' && AuthService.isAuthenticated()){
+      if(Date.now() - _lastFetchTimestamp > 3000){
+        loadData(true);
+      }
+    }
+  });
+  window.addEventListener('focus', ()=>{
+    if(typeof AuthService !== 'undefined' && AuthService.isAuthenticated()){
+      if(Date.now() - _lastFetchTimestamp > 3000){
+        loadData(true);
+      }
+    }
+  });
+}
+
 function renderAgentFilterView(){
   const agent = document.getElementById('fAgent').value;
   const college = document.getElementById('fCollege').value;
@@ -2882,6 +2989,10 @@ const AppPresenceBus = (function(){
       } else {
         AuthService.enforceRouteGuard();
       }
+    } else if(type === 'DATA_UPDATED'){
+      if(typeof AuthService !== 'undefined' && AuthService.isAuthenticated()){
+        loadData(true);
+      }
     } else if(type === 'USERS_UPDATED'){
       if(typeof fetchAgentPhotosFromSupabase === 'function'){
         fetchAgentPhotosFromSupabase().then(() => {
@@ -3342,6 +3453,7 @@ function init(){
   setupAgentManagement();
   setupMonthlyComparison();
   setupTopRefresh();
+  setupVisibilityWatchdog();
 
   let savedDark = true;
   try{ const saved = localStorage.getItem('dashboardTheme'); if(saved) savedDark = saved === 'dark'; }catch(e){}
