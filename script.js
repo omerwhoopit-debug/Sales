@@ -37,7 +37,7 @@ function sanitizeAndDeduplicateCpd(rows) {
 
 // ---------------- Live data sync (Google Sheet via Apps Script) ----------------
 const SHEET_API_URL = window.SHEET_API_URL || "https://script.google.com/macros/s/AKfycbzMNsgB9AjtNBXBmANcAMDIJn70M4zDwaYTdLRLpkwJ6dLfwLMwflsulDY1X2ux0JMo0A/exec";
-const REFRESH_INTERVAL_MS = 10000; // auto-refresh every 10 seconds for rapid sync
+const REFRESH_INTERVAL_MS = 4000; // auto-refresh every 4 seconds to guarantee updates within 5s
 let _hasLoadedOnce = false;
 let _lastDataFingerprint = '';
 
@@ -1566,15 +1566,89 @@ const AGENT_PHOTOS = {
 };
 
 /* ---------------- Agent settings: photos, CPD/Phlebotomy participation, custom agents ---------------- */
+let _agentPhotoOverridesCache = null;
+
 function getAgentPhotoOverrides(){
-  try{ return JSON.parse(localStorage.getItem('agentPhotoOverrides')||'{}'); }catch(e){ return {}; }
+  if(_agentPhotoOverridesCache) return _agentPhotoOverridesCache;
+  try{
+    const stored = JSON.parse(localStorage.getItem('agentPhotoOverrides')||'{}');
+    _agentPhotoOverridesCache = stored;
+    return stored;
+  }catch(e){ return {}; }
 }
+
 function saveAgentPhotoOverrides(obj){
+  _agentPhotoOverridesCache = obj;
   try{ localStorage.setItem('agentPhotoOverrides', JSON.stringify(obj)); }catch(e){}
+  // Persist agent photo overrides directly to Supabase dashboard_cache
+  if(typeof SupabaseService !== 'undefined'){
+    const client = SupabaseService.getClient();
+    if(client){
+      client.from('dashboard_cache').upsert({
+        id: 'agent_photos',
+        payload: obj,
+        fingerprint: 'photos_' + Date.now(),
+        updated_at: new Date().toISOString()
+      }).then(()=>{});
+    }
+  }
 }
+
+async function fetchAgentPhotosFromSupabase(){
+  if(typeof SupabaseService !== 'undefined'){
+    const client = SupabaseService.getClient();
+    if(client){
+      try {
+        const { data } = await client
+          .from('dashboard_cache')
+          .select('payload')
+          .eq('id', 'agent_photos')
+          .maybeSingle();
+        if(data && data.payload && typeof data.payload === 'object'){
+          const local = getAgentPhotoOverrides();
+          _agentPhotoOverridesCache = { ...local, ...data.payload };
+          try{ localStorage.setItem('agentPhotoOverrides', JSON.stringify(_agentPhotoOverridesCache)); }catch(e){}
+          return _agentPhotoOverridesCache;
+        }
+      } catch(e){}
+    }
+  }
+  return getAgentPhotoOverrides();
+}
+
 function getAgentPhoto(name){
+  if(!name) return null;
+  const clean = name.trim().toLowerCase();
+
+  // 1. Check custom overrides (Supabase & localStorage)
   const overrides = getAgentPhotoOverrides();
-  return overrides[name] || AGENT_PHOTOS[name] || null;
+  for(const k in overrides){
+    if(k && k.trim().toLowerCase() === clean && overrides[k]) return overrides[k];
+  }
+
+  // 2. Fetch from Supabase profiles (matches user full name, username, or first name)
+  const users = typeof UserManager !== 'undefined' ? UserManager.getUsers() : [];
+  if (Array.isArray(users) && users.length > 0) {
+    const matched = users.find(u => {
+      const uName = (u.name || '').trim().toLowerCase();
+      const uUser = (u.username || '').trim().toLowerCase();
+      if (uName === clean || uUser === clean) return true;
+      const firstName = uName.split(' ')[0];
+      if (firstName === clean) return true;
+      if (clean.includes(uName) || uName.includes(clean)) return true;
+      return false;
+    });
+    if (matched && matched.photo) {
+      return matched.photo;
+    }
+  }
+
+  // 3. Bundled photos fallback
+  for(const k in AGENT_PHOTOS){
+    if(k && k.trim().toLowerCase() === clean && AGENT_PHOTOS[k]) return AGENT_PHOTOS[k];
+  }
+
+  return null;
 }
 function getAgentSettings(){
   try{ return JSON.parse(localStorage.getItem('agentSettings')||'{}'); }catch(e){ return {}; }
@@ -3189,7 +3263,20 @@ function setupAuth(){
    APPLICATION INITIALIZATION
    ========================================================================== */
 function init(){
-  UserManager.fetchUsersFromSupabase();
+  UserManager.fetchUsersFromSupabase().then(() => {
+    if(_hasLoadedOnce) {
+      const stats = computeStats(RAW_DATA);
+      const ph = computePhlebStats(PHLEB_DATA);
+      renderHero(stats, ph);
+    }
+  });
+  fetchAgentPhotosFromSupabase().then(() => {
+    if(_hasLoadedOnce) {
+      const stats = computeStats(RAW_DATA);
+      const ph = computePhlebStats(PHLEB_DATA);
+      renderHero(stats, ph);
+    }
+  });
   AppPresenceBus.init();
   setupAuth();
   setupUserManagement();
