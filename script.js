@@ -44,7 +44,7 @@ function sanitizeAndDeduplicateCpd(rows) {
 }
 
 // ---------------- Live data sync (Google Sheet via Apps Script) ----------------
-const SHEET_API_URL = window.SHEET_API_URL || "https://script.google.com/macros/s/AKfycbzMNsgB9AjtNBXBmANcAMDIJn70M4zDwaYTdLRLpkwJ6dLfwLMwflsulDY1X2ux0JMo0A/exec";
+const SHEET_API_URL = window.SHEET_API_URL || "https://script.google.com/macros/s/AKfycbwYAeodCowr0XYdldYnHgL-2ZS7DtdZH3LSwQpx3B_VeNgMdvDJyuY11l643lZU5Xvk/exec";
 const REFRESH_INTERVAL_MS = 4000; // auto-refresh every 4 seconds to guarantee updates within 5s
 let _hasLoadedOnce = false;
 let _lastDataFingerprint = '';
