@@ -105,14 +105,14 @@ async function loadData(isSilent = false){
       _isSheetFetching = false;
     };
 
-    // 10-second timeout watchdog for hanging connections
+    // 45-second timeout watchdog for Google Apps Script processing
     timeoutTimer = setTimeout(() => {
       if(settled) return;
       settled = true;
-      console.warn('Sheet data fetch timed out after 10s');
+      console.warn('Sheet data fetch timed out after 45s');
       cleanup();
       resolve();
-    }, 10000);
+    }, 45000);
 
     window[callbackName] = function(data){
       if(settled) return;

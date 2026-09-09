@@ -109,7 +109,7 @@ def fetch_cached_payload(api_url, token=""):
         params = {"nocache": "1"}
         if token:
             params["token"] = token
-        resp = requests.get(api_url, params=params, timeout=10)
+        resp = requests.get(api_url, params=params, timeout=45)
         if resp.status_code == 200:
             data = resp.json()
             if isinstance(data, dict) and "sales" in data:
