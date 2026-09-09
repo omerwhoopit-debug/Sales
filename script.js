@@ -73,6 +73,18 @@ async function loadData(isSilent = false){
         if(!_hasLoadedOnce){
           _hasLoadedOnce = true;
           _lastDataFingerprint = currentFingerprint;
+          // Backfill Supabase cache with initial data
+          if(typeof SupabaseService !== 'undefined'){
+            const sbClient = SupabaseService.getClient();
+            if(sbClient){
+              sbClient.from('dashboard_cache').upsert({
+                id: 'latest',
+                payload: data,
+                fingerprint: currentFingerprint,
+                updated_at: new Date().toISOString()
+              }).then(() => {});
+            }
+          }
           finishInit();
         } else {
           const dataChanged = currentFingerprint !== _lastDataFingerprint;
@@ -84,6 +96,19 @@ async function loadData(isSilent = false){
             const lastDate = RAW_DATA.length ? (RAW_DATA.map(r=>r.date).sort().slice(-1)[0]) : null;
             if(el) el.textContent = lastDate ? (RAW_DATA.length + ' orders · Synced just now') : 'No data available';
           } else {
+            // Sheet data changed: Update Supabase cache in the background
+            if(typeof SupabaseService !== 'undefined'){
+              const sbClient = SupabaseService.getClient();
+              if(sbClient){
+                sbClient.from('dashboard_cache').upsert({
+                  id: 'latest',
+                  payload: data,
+                  fingerprint: currentFingerprint,
+                  updated_at: new Date().toISOString()
+                }).then(() => {});
+              }
+            }
+
             window._isSilentRefresh = isSilent;
             populateFilterOptions(true);
             const mgmtOverlay = document.getElementById('agentMgmtOverlay');
@@ -2643,17 +2668,42 @@ const AuthService = (function(){
     }
   }
 
-  function startDataSync(){
+  async function startDataSync(){
     if(_activeSyncInterval) clearInterval(_activeSyncInterval);
     if(!_hasLoadedOnce){
       if(window.INITIAL_DATA && Array.isArray(window.INITIAL_DATA.sales) && window.INITIAL_DATA.sales.length > 0){
         RAW_DATA = sanitizeAndDeduplicateSales(window.INITIAL_DATA.sales);
         CPD_DATA = sanitizeAndDeduplicateCpd(Array.isArray(window.INITIAL_DATA.cpd) ? window.INITIAL_DATA.cpd : []);
         PHLEB_DATA = Array.isArray(window.INITIAL_DATA.phleb) ? window.INITIAL_DATA.phleb : [];
+        _lastDataFingerprint = computeDataFingerprint(RAW_DATA, CPD_DATA, PHLEB_DATA);
         _hasLoadedOnce = true;
         finishInit();
       } else {
-        loadData(false);
+        // Fast retrieval from Supabase cache (< 40ms)
+        const sbClient = typeof SupabaseService !== 'undefined' ? SupabaseService.getClient() : null;
+        if(sbClient){
+          try {
+            const { data: cacheRow } = await sbClient
+              .from('dashboard_cache')
+              .select('payload, fingerprint')
+              .eq('id', 'latest')
+              .maybeSingle();
+
+            if(cacheRow && cacheRow.payload && Array.isArray(cacheRow.payload.sales) && cacheRow.payload.sales.length > 0){
+              RAW_DATA = sanitizeAndDeduplicateSales(cacheRow.payload.sales);
+              CPD_DATA = sanitizeAndDeduplicateCpd(Array.isArray(cacheRow.payload.cpd) ? cacheRow.payload.cpd : []);
+              PHLEB_DATA = Array.isArray(cacheRow.payload.phleb) ? cacheRow.payload.phleb : [];
+              _lastDataFingerprint = cacheRow.fingerprint || computeDataFingerprint(RAW_DATA, CPD_DATA, PHLEB_DATA);
+              _hasLoadedOnce = true;
+              finishInit();
+            }
+          } catch(err){
+            console.warn('Fast Supabase cache fetch failed:', err);
+          }
+        }
+        if(!_hasLoadedOnce){
+          loadData(false);
+        }
       }
     }
     _activeSyncInterval = setInterval(() => {

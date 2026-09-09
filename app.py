@@ -81,9 +81,30 @@ AUTH_PASSWORD = get_secret("AUTH_PASSWORD", "admin")
 SUPABASE_URL = get_secret("SUPABASE_URL", "https://zecdijliifdutyvvthbn.supabase.co")
 SUPABASE_ANON_KEY = get_secret("SUPABASE_ANON_KEY", "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InplY2RpamxpaWZkdXR5dnZ0aGJuIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODg5NTc2NTIsImV4cCI6MjEwNDUzMzY1Mn0.ctQ8HM0xb7r8CZE6ZFIcSZNZ6vb1wHncU96xSLnnGhc")
 
-# Server-side caching for 3 seconds (ensures rapid sync with Google Sheets)
-@st.cache_data(ttl=3, show_spinner=False)
+# Server-side caching: Fast Supabase cache first (<30ms), fallback to Google Sheets
+@st.cache_data(ttl=2, show_spinner=False)
 def fetch_cached_payload(api_url, token=""):
+    # 1. Ultra-fast Supabase cache retrieval
+    try:
+        sb_headers = {
+            "apikey": SUPABASE_ANON_KEY,
+            "Authorization": f"Bearer {SUPABASE_ANON_KEY}"
+        }
+        sb_resp = requests.get(
+            f"{SUPABASE_URL}/rest/v1/dashboard_cache?id=eq.latest&select=payload,fingerprint",
+            headers=sb_headers,
+            timeout=2.0
+        )
+        if sb_resp.status_code == 200:
+            rows = sb_resp.json()
+            if rows and len(rows) > 0 and isinstance(rows[0], dict) and "payload" in rows[0]:
+                payload = rows[0]["payload"]
+                if isinstance(payload, dict) and "sales" in payload and len(payload["sales"]) > 0:
+                    return payload
+    except Exception:
+        pass
+
+    # 2. Fallback to Google Sheets API
     try:
         params = {"nocache": "1"}
         if token:
@@ -92,6 +113,26 @@ def fetch_cached_payload(api_url, token=""):
         if resp.status_code == 200:
             data = resp.json()
             if isinstance(data, dict) and "sales" in data:
+                # Backfill Supabase cache asynchronously/immediately
+                try:
+                    fp = f"{len(data.get('sales', []))}_{len(data.get('cpd', []))}_{len(data.get('phleb', []))}"
+                    requests.post(
+                        f"{SUPABASE_URL}/rest/v1/dashboard_cache",
+                        headers={
+                            "apikey": SUPABASE_ANON_KEY,
+                            "Authorization": f"Bearer {SUPABASE_ANON_KEY}",
+                            "Content-Type": "application/json",
+                            "Prefer": "resolution=merge-duplicates"
+                        },
+                        json={
+                            "id": "latest",
+                            "payload": data,
+                            "fingerprint": fp
+                        },
+                        timeout=2.5
+                    )
+                except Exception:
+                    pass
                 return data
     except Exception:
         pass
