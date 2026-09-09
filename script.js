@@ -1577,10 +1577,10 @@ function getAgentPhotoOverrides(){
   }catch(e){ return {}; }
 }
 
-function saveAgentPhotoOverrides(obj){
+function saveAgentPhotoOverrides(obj, specificAgentName, dataUrl){
   _agentPhotoOverridesCache = obj;
   try{ localStorage.setItem('agentPhotoOverrides', JSON.stringify(obj)); }catch(e){}
-  // Persist agent photo overrides directly to Supabase dashboard_cache
+  // 1. Persist all agent photo overrides directly to Supabase dashboard_cache
   if(typeof SupabaseService !== 'undefined'){
     const client = SupabaseService.getClient();
     if(client){
@@ -1590,6 +1590,17 @@ function saveAgentPhotoOverrides(obj){
         fingerprint: 'photos_' + Date.now(),
         updated_at: new Date().toISOString()
       }).then(()=>{});
+
+      // 2. If this agent has a user account in Supabase profiles, sync avatar_base64 there too
+      if(specificAgentName && dataUrl){
+        const cleanName = specificAgentName.trim().toLowerCase();
+        client.from('profiles')
+          .update({ avatar_base64: dataUrl })
+          .or(`username.ilike.${cleanName},full_name.ilike.%${cleanName}%`)
+          .then(()=>{
+            if(typeof UserManager !== 'undefined') UserManager.fetchUsersFromSupabase();
+          });
+      }
     }
   }
 }
@@ -1702,9 +1713,34 @@ function handleAgentPhotoUpload(agentName, file){
       const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
       const overrides = getAgentPhotoOverrides();
       overrides[agentName] = dataUrl;
-      saveAgentPhotoOverrides(overrides);
+      saveAgentPhotoOverrides(overrides, agentName, dataUrl);
+
+      // Immediately reflect across all UI elements:
+      // 1. Manage Agents table
       renderAgentMgmtPanel();
+      // 2. Hero highlight banner and main charts
       render();
+      // 3. User Management modal table
+      if(typeof renderUserMgmtTable === 'function'){
+        renderUserMgmtTable();
+      }
+      // 4. Active user session avatar if currently logged in user matches this agent
+      const curUser = typeof AuthService !== 'undefined' ? AuthService.getCurrentUser() : null;
+      if(curUser){
+        const cName = (curUser.name || '').toLowerCase();
+        const cUser = (curUser.username || '').toLowerCase();
+        const aName = agentName.toLowerCase();
+        if(cName.includes(aName) || aName.includes(cName) || cUser === aName){
+          curUser.photo = dataUrl;
+          const s = AuthService.getSession();
+          if(s){ s.user.photo = dataUrl; AuthService.setSession(s, true); }
+          AuthService.applyRoleUI(curUser);
+        }
+      }
+      // 5. Broadcast to all other open tabs
+      if(window.AppPresenceBus){
+        window.AppPresenceBus.broadcast('USERS_UPDATED');
+      }
     };
     img.src = e.target.result;
   };
@@ -1782,7 +1818,10 @@ function setupAgentManagement(){
   const overlay = document.getElementById('agentMgmtOverlay');
   const openBtn = document.getElementById('navManageAgents');
   const closeBtn = document.getElementById('agentMgmtCloseBtn');
-  openBtn.addEventListener('click', ()=>{
+  openBtn.addEventListener('click', async ()=>{
+    if(typeof fetchAgentPhotosFromSupabase === 'function'){
+      await fetchAgentPhotosFromSupabase();
+    }
     renderAgentMgmtPanel();
     overlay.classList.add('open');
   });
@@ -2844,7 +2883,15 @@ const AppPresenceBus = (function(){
         AuthService.enforceRouteGuard();
       }
     } else if(type === 'USERS_UPDATED'){
-      renderUserMgmtTable();
+      if(typeof fetchAgentPhotosFromSupabase === 'function'){
+        fetchAgentPhotosFromSupabase().then(() => {
+          renderAgentMgmtPanel();
+          render();
+        });
+      }
+      if(typeof renderUserMgmtTable === 'function'){
+        renderUserMgmtTable();
+      }
     }
   }
 
