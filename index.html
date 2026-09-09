@@ -8,6 +8,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800;900&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <link rel="icon" type="image/png" sizes="16x16" href="favicon-16.png">
 <link rel="icon" type="image/png" sizes="32x32" href="favicon-32.png">
 <link rel="icon" type="image/png" sizes="48x48" href="favicon-48.png">
@@ -740,15 +741,11 @@
         <div class="user-mgmt-list-head">
           <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
             <h4 style="margin:0;font-size:14px;font-weight:700;">Active Users (<span id="userCountBadge">0</span>)</h4>
-            <div class="user-mgmt-db-actions" style="display:flex;gap:6px;">
-              <button type="button" id="btnDownloadUsersJs" class="btn btn-ghost btn-sm" title="Download updated users.js file to save in project" style="padding:4px 10px;font-size:12px;height:28px;">
-                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right:4px;vertical-align:-1px;"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-                Download users.js
-              </button>
-              <button type="button" id="btnCopyUsersJs" class="btn btn-ghost btn-sm" title="Copy users.js code to clipboard" style="padding:4px 10px;font-size:12px;height:28px;">
-                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right:4px;vertical-align:-1px;"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
-                Copy Code
-              </button>
+            <div class="user-mgmt-db-actions" style="display:flex;align-items:center;gap:6px;">
+              <span class="db-status-badge" style="display:inline-flex;align-items:center;gap:5px;font-size:11px;font-weight:600;padding:3px 8px;border-radius:12px;background:rgba(16,185,129,0.12);color:#10b981;border:1px solid rgba(16,185,129,0.25);">
+                <span style="width:6px;height:6px;border-radius:50%;background:#10b981;"></span>
+                Supabase Live
+              </span>
             </div>
           </div>
           <input type="text" id="userListSearch" placeholder="Search users by name, email, or role…" class="table-search-input">
@@ -773,7 +770,6 @@
   </div>
 </div>
 
-<script src="users.js"></script>
 <script src="script.js"></script>
 </body>
 </html>

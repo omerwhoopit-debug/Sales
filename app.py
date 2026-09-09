@@ -78,6 +78,8 @@ SHEET_API_URL = get_secret("SHEET_API_URL", DEFAULT_API_URL)
 SECURITY_TOKEN = get_secret("SECURITY_TOKEN", "")
 AUTH_USERNAME = get_secret("AUTH_USERNAME", "admin")
 AUTH_PASSWORD = get_secret("AUTH_PASSWORD", "admin")
+SUPABASE_URL = get_secret("SUPABASE_URL", "https://zecdijliifdutyvvthbn.supabase.co")
+SUPABASE_ANON_KEY = get_secret("SUPABASE_ANON_KEY", "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InplY2RpamxpaWZkdXR5dnZ0aGJuIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODg5NTc2NTIsImV4cCI6MjEwNDUzMzY1Mn0.ctQ8HM0xb7r8CZE6ZFIcSZNZ6vb1wHncU96xSLnnGhc")
 
 # Server-side caching for 3 seconds (ensures rapid sync with Google Sheets)
 @st.cache_data(ttl=3, show_spinner=False)
@@ -129,16 +131,12 @@ def build_bundled_dashboard():
         window.SHEET_API_URL = "{SHEET_API_URL}";
         window.AUTH_USERNAME = "{AUTH_USERNAME}";
         window.AUTH_PASSWORD = "{AUTH_PASSWORD}";
+        window.SUPABASE_URL = "{SUPABASE_URL}";
+        window.SUPABASE_ANON_KEY = "{SUPABASE_ANON_KEY}";
     </script>
     """
 
-    # 4. Inline users.js (permanent user accounts code file)
-    if os.path.exists("users.js"):
-        with open("users.js", "r", encoding="utf-8") as f:
-            users_js_content = f.read()
-        html = html.replace('<script src="users.js"></script>', f'<script>\n{users_js_content}\n</script>')
-
-    # 5. Inline JavaScript with pre-loaded initial data & auth
+    # 4. Inline JavaScript with pre-loaded initial data & auth
     if os.path.exists("script.js"):
         with open("script.js", "r", encoding="utf-8") as f:
             js_content = f.read()

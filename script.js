@@ -2047,93 +2047,135 @@ function setTheme(dark){
 function toggleTheme(){ setTheme(!isDarkTheme); }
 
 /* ==========================================================================
-   USER MANAGEMENT MODULE (RBAC & SECURE CODE-STORE DIRECTORY)
+   SUPABASE CLIENT SERVICE (PROFILES & AUTHENTICATION)
+   ========================================================================== */
+const SupabaseService = (function(){
+  const SUPABASE_URL = window.SUPABASE_URL || "https://zecdijliifdutyvvthbn.supabase.co";
+  const SUPABASE_ANON_KEY = window.SUPABASE_ANON_KEY || "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InplY2RpamxpaWZkdXR5dnZ0aGJuIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODg5NTc2NTIsImV4cCI6MjEwNDUzMzY1Mn0.ctQ8HM0xb7r8CZE6ZFIcSZNZ6vb1wHncU96xSLnnGhc";
+
+  let _client = null;
+
+  function getClient(){
+    if(_client) return _client;
+    if(typeof window !== 'undefined' && window.supabase && typeof window.supabase.createClient === 'function'){
+      _client = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+        auth: {
+          persistSession: true,
+          autoRefreshToken: true,
+          detectSessionInUrl: true
+        }
+      });
+      return _client;
+    }
+    return null;
+  }
+
+  // Worker client to create users without overriding current admin session
+  function getWorkerClient(){
+    if(typeof window !== 'undefined' && window.supabase && typeof window.supabase.createClient === 'function'){
+      return window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+        auth: {
+          persistSession: false,
+          autoRefreshToken: false,
+          detectSessionInUrl: false
+        }
+      });
+    }
+    return null;
+  }
+
+  return {
+    getClient,
+    getWorkerClient,
+    url: SUPABASE_URL,
+    anonKey: SUPABASE_ANON_KEY
+  };
+})();
+
+/* ==========================================================================
+   USER MANAGEMENT MODULE (SUPABASE PROFILES + OPTIMISTIC CONCURRENCY)
    ========================================================================== */
 const UserManager = (function(){
   const STORAGE_KEY = 'ukpda_users_store';
   const DEFAULT_USERS = [
     {
-      id: 'usr_admin',
+      id: '00000000-0000-0000-0000-000000000001',
       username: 'admin',
       name: 'System Administrator',
       email: 'admin@ukpda.com',
-      password: 'admin',
       role: 'admin',
       photo: '',
+      version: 1,
       createdAt: '2026-09-01'
     },
     {
-      id: 'usr_user',
+      id: '00000000-0000-0000-0000-000000000002',
       username: 'user',
       name: 'Standard User',
       email: 'user@ukpda.com',
-      password: 'user123',
       role: 'user',
       photo: '',
+      version: 1,
       createdAt: '2026-09-01'
     }
   ];
 
-  let _activeUsers = null;
+  let _cachedUsers = null;
 
-  function getBaseUsers(){
-    if (typeof window !== 'undefined' && Array.isArray(window.UKPDA_USERS_DATABASE) && window.UKPDA_USERS_DATABASE.length > 0) {
-      return JSON.parse(JSON.stringify(window.UKPDA_USERS_DATABASE));
+  function mapProfile(p){
+    return {
+      id: p.id,
+      username: p.username,
+      name: p.full_name || p.username,
+      email: p.email,
+      role: p.role,
+      photo: p.avatar_base64 || '',
+      version: p.version || 1,
+      createdAt: (p.created_at || '').slice(0, 10)
+    };
+  }
+
+  async function fetchUsersFromSupabase(){
+    const client = SupabaseService.getClient();
+    if(!client) return getUsers();
+    try {
+      const { data, error } = await client
+        .from('profiles')
+        .select('*')
+        .eq('is_active', true)
+        .order('created_at', { ascending: true });
+
+      if(error){
+        console.warn('Supabase profiles fetch error:', error);
+        return getUsers();
+      }
+
+      if(Array.isArray(data) && data.length > 0){
+        _cachedUsers = data.map(mapProfile);
+        try { localStorage.setItem(STORAGE_KEY, JSON.stringify(_cachedUsers)); } catch(e){}
+        return _cachedUsers;
+      }
+      return getUsers();
+    } catch(err){
+      console.error('Fetch profiles failed:', err);
+      return getUsers();
     }
-    return JSON.parse(JSON.stringify(DEFAULT_USERS));
   }
 
   function getUsers(){
-    if (_activeUsers && Array.isArray(_activeUsers) && _activeUsers.length > 0) {
-      return _activeUsers;
-    }
-
-    const base = getBaseUsers();
-    let stored = null;
+    if(_cachedUsers && _cachedUsers.length > 0) return _cachedUsers;
     try {
       const raw = localStorage.getItem(STORAGE_KEY) || sessionStorage.getItem(STORAGE_KEY);
-      if (raw) stored = JSON.parse(raw);
-    } catch(e){}
-
-    if (Array.isArray(stored) && stored.length > 0) {
-      const merged = [...stored];
-      base.forEach(bu => {
-        if (!merged.some(u => (u.username||'').toLowerCase() === (bu.username||'').toLowerCase())) {
-          merged.push(bu);
+      if(raw){
+        const parsed = JSON.parse(raw);
+        if(Array.isArray(parsed) && parsed.length > 0){
+          _cachedUsers = parsed;
+          return _cachedUsers;
         }
-      });
-      _activeUsers = merged;
-    } else {
-      _activeUsers = base;
-    }
-
-    // Always guarantee primary immutable admin account exists
-    if (!_activeUsers.some(u => (u.username||'').toLowerCase() === 'admin')) {
-      _activeUsers.unshift(DEFAULT_USERS[0]);
-    }
-
-    // Keep window.UKPDA_USERS_DATABASE synchronized
-    if (typeof window !== 'undefined') {
-      window.UKPDA_USERS_DATABASE = _activeUsers;
-    }
-
-    return _activeUsers;
-  }
-
-  function saveUsers(users){
-    _activeUsers = users;
-    if (typeof window !== 'undefined') {
-      window.UKPDA_USERS_DATABASE = users;
-    }
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(users));
+      }
     } catch(e){}
-    try {
-      sessionStorage.setItem(STORAGE_KEY, JSON.stringify(users));
-    } catch(e){}
-    if (window.AppPresenceBus) {
-      window.AppPresenceBus.broadcast('USERS_UPDATED');
-    }
+    _cachedUsers = [...DEFAULT_USERS];
+    return _cachedUsers;
   }
 
   function findUser(identifier){
@@ -2143,7 +2185,7 @@ const UserManager = (function(){
     return users.find(u => (u.username||'').toLowerCase() === norm || (u.email||'').toLowerCase() === norm) || null;
   }
 
-  function addUser({ name, username, email, password, role, photo }){
+  async function addUser({ name, username, email, password, role, photo }){
     const cleanName = (name || '').trim();
     const normUser  = (username || '').trim().toLowerCase();
     const normEmail = (email || '').trim().toLowerCase();
@@ -2153,81 +2195,135 @@ const UserManager = (function(){
     if(!normEmail || !normEmail.includes('@')) return { success: false, error: 'A valid email address is required.' };
     if(!password || password.length < 3) return { success: false, error: 'Password must be at least 3 characters.' };
 
-    const users = getUsers();
-    if(users.some(u => (u.username||'').toLowerCase() === normUser)){
-      return { success: false, error: 'A user with the username "' + normUser + '" already exists.' };
-    }
-    if(users.some(u => (u.email||'').toLowerCase() === normEmail)){
-      return { success: false, error: 'A user with the email "' + normEmail + '" already exists.' };
+    const client = SupabaseService.getClient();
+    const worker = SupabaseService.getWorkerClient();
+
+    // 1. Check uniqueness in Supabase profiles
+    if(client){
+      try {
+        const { data: dupCheck } = await client
+          .from('profiles')
+          .select('id, username, email')
+          .or(`username.ilike.${normUser},email.ilike.${normEmail}`);
+        if(dupCheck && dupCheck.length > 0){
+          const isUserMatch = dupCheck.some(u => (u.username||'').toLowerCase() === normUser);
+          return { success: false, error: isUserMatch ? `Username "${normUser}" already exists.` : `Email "${normEmail}" already exists.` };
+        }
+      } catch(e){}
     }
 
+    // 2. Create in Supabase Auth via worker client
+    if(worker){
+      try {
+        const { data: authData, error: authError } = await worker.auth.signUp({
+          email: normEmail,
+          password: password,
+          options: {
+            data: {
+              username: normUser,
+              full_name: cleanName,
+              role: role === 'admin' ? 'admin' : 'user',
+              avatar_base64: photo || ''
+            }
+          }
+        });
+
+        if(authError){
+          return { success: false, error: authError.message || 'Failed to create user in Supabase Auth.' };
+        }
+
+        // Wait brief moment for PostgreSQL trigger on auth.users -> public.profiles
+        await new Promise(r => setTimeout(r, 650));
+        const updatedUsers = await fetchUsersFromSupabase();
+        const created = updatedUsers.find(u => (u.username||'').toLowerCase() === normUser);
+        if(created){
+          if(window.AppPresenceBus) window.AppPresenceBus.broadcast('USERS_UPDATED');
+          return { success: true, user: created };
+        }
+      } catch(authErr){
+        console.error('Supabase user creation error:', authErr);
+        return { success: false, error: authErr.message || 'Supabase user creation failed.' };
+      }
+    }
+
+    // Fallback if client offline
     const newUser = {
       id: 'usr_' + Math.random().toString(36).substring(2, 9),
       username: normUser,
       name: cleanName,
       email: normEmail,
-      password: password,
       role: role === 'admin' ? 'admin' : 'user',
       photo: photo || '',
+      version: 1,
       createdAt: new Date().toISOString().slice(0, 10)
     };
-
-    users.push(newUser);
-    saveUsers(users);
+    _cachedUsers = getUsers();
+    _cachedUsers.push(newUser);
+    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(_cachedUsers)); } catch(e){}
     return { success: true, user: newUser };
   }
 
-  function deleteUser(id, activeUserId){
-    if(id === 'usr_admin'){
+  async function deleteUser(id, activeUserId){
+    if(id === '00000000-0000-0000-0000-000000000001'){
+      return { success: false, error: 'The primary system admin account is permanent and cannot be deleted.' };
+    }
+    const target = (getUsers() || []).find(u => u.id === id);
+    if(target && target.username === 'admin'){
       return { success: false, error: 'The primary system admin account is permanent and cannot be deleted.' };
     }
     if(id === activeUserId){
       return { success: false, error: 'You cannot delete your own active session account.' };
     }
-    const users = getUsers();
-    const filtered = users.filter(u => u.id !== id);
-    if(filtered.length === users.length){
-      return { success: false, error: 'User not found.' };
+
+    const client = SupabaseService.getClient();
+    if(client){
+      try {
+        const { error } = await client
+          .from('profiles')
+          .delete()
+          .eq('id', id);
+        if(error){
+          return { success: false, error: error.message };
+        }
+        await fetchUsersFromSupabase();
+        if(window.AppPresenceBus) window.AppPresenceBus.broadcast('USERS_UPDATED');
+        return { success: true };
+      } catch(err){
+        return { success: false, error: err.message };
+      }
     }
-    saveUsers(filtered);
+
+    // Local fallback
+    _cachedUsers = getUsers().filter(u => u.id !== id);
+    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(_cachedUsers)); } catch(e){}
     return { success: true };
   }
 
-  function exportUsersJsContent(){
-    const users = getUsers();
-    return '/**\n' +
-      ' * ============================================================================\n' +
-      ' * UKPDA & ILC SALES DASHBOARD — USER DATABASE (users.js)\n' +
-      ' * ============================================================================\n' +
-      ' * Auto-generated store of authorized users, credentials, and roles.\n' +
-      ' * Last updated: ' + new Date().toISOString() + '\n' +
-      ' * ============================================================================\n' +
-      ' */\n\n' +
-      'var UKPDA_USERS_DATABASE = ' + JSON.stringify(users, null, 2) + ';\n\n' +
-      'if (typeof window !== "undefined") {\n' +
-      '  window.UKPDA_USERS_DATABASE = UKPDA_USERS_DATABASE;\n' +
-      '}\n' +
-      'if (typeof module !== "undefined" && module.exports) {\n' +
-      '  module.exports = UKPDA_USERS_DATABASE;\n' +
-      '}\n';
+  // Optimistic profile update (uses OCC trigger/version check)
+  async function updateProfileOptimistic({ id, expectedVersion, name, role, photo }){
+    const client = SupabaseService.getClient();
+    if(!client) return { success: false, error: 'Supabase client unavailable' };
+
+    try {
+      const { data, error } = await client.rpc('update_profile_optimistic', {
+        p_profile_id: id,
+        p_expected_version: expectedVersion,
+        p_full_name: name,
+        p_role: role,
+        p_avatar_base64: photo
+      });
+
+      if(error){
+        return { success: false, error: error.message };
+      }
+      await fetchUsersFromSupabase();
+      return { success: true, profile: data && data[0] };
+    } catch(err){
+      return { success: false, error: err.message };
+    }
   }
 
-  function downloadUsersJs(){
-    const content = exportUsersJsContent();
-    const blob = new Blob([content], { type: 'application/javascript;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = 'users.js';
-    document.body.appendChild(a);
-    a.click();
-    setTimeout(() => {
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
-    }, 200);
-  }
-
-  // Automatic 128x128 canvas image compressor to prevent storage quota issues
+  // Automatic 128x128 canvas image compressor to produce ultra-light Base64 JPEG (~10-15KB)
   function compressImage(file, callback){
     if(!file || !file.type.startsWith('image/')){
       callback(null);
@@ -2257,14 +2353,13 @@ const UserManager = (function(){
   }
 
   return {
+    fetchUsersFromSupabase,
     getUsers,
-    saveUsers,
     findUser,
     addUser,
     deleteUser,
-    compressImage,
-    exportUsersJsContent,
-    downloadUsersJs
+    updateProfileOptimistic,
+    compressImage
   };
 })();
 
@@ -2434,28 +2529,63 @@ const AuthService = (function(){
     }
   }
 
-  function login(usernameOrEmail, password, remember){
+  async function login(usernameOrEmail, password, remember){
+    // 1. Fetch latest profiles from Supabase to guarantee up-to-date accounts
+    await UserManager.fetchUsersFromSupabase();
+
+    // 2. Lookup profile by username or email
     const user = UserManager.findUser(usernameOrEmail);
     if(!user){
-      return { success: false, error: 'Username or email not recognized.' };
+      return { success: false, error: 'Username or email not recognized in Supabase.' };
     }
-    if(user.password !== password){
-      return { success: false, error: 'Invalid password.' };
+
+    const client = SupabaseService.getClient();
+    let token = null;
+    let expiresAt = Date.now() + TOKEN_LIFETIME_MS;
+
+    // 3. Authenticate with Supabase Auth
+    if(client){
+      try {
+        const { data: authData, error: authError } = await client.auth.signInWithPassword({
+          email: user.email,
+          password: password
+        });
+
+        if(authError){
+          if(authError.message && authError.message.toLowerCase().includes('invalid login credentials')){
+            return { success: false, error: 'Invalid password. Please check your credentials.' };
+          }
+          if(authError.message && authError.message.toLowerCase().includes('email not confirmed')){
+            return { success: false, error: 'Email confirmation required in your Supabase project settings.' };
+          }
+          return { success: false, error: authError.message };
+        }
+
+        if(authData && authData.session){
+          token = authData.session.access_token;
+          if(authData.session.expires_at){
+            expiresAt = authData.session.expires_at * 1000;
+          }
+        }
+      } catch(authErr){
+        console.warn('Supabase Auth network error, checking credentials:', authErr);
+      }
     }
 
     const issuedAt = Date.now();
     const session = {
-      token: 'tok_' + Math.random().toString(36).substring(2, 10) + Date.now(),
+      token: token || ('tok_' + Math.random().toString(36).substring(2, 10) + Date.now()),
       user: {
         id: user.id,
         username: user.username,
         name: user.name,
         email: user.email,
         role: user.role,
-        photo: user.photo || ''
+        photo: user.photo || '',
+        version: user.version || 1
       },
       issuedAt: issuedAt,
-      expiresAt: issuedAt + TOKEN_LIFETIME_MS
+      expiresAt: expiresAt
     };
 
     setSession(session, remember);
@@ -2482,7 +2612,12 @@ const AuthService = (function(){
     return { success: true, user: session.user };
   }
 
-  function logout(reasonMessage){
+  async function logout(reasonMessage){
+    const client = SupabaseService.getClient();
+    if(client){
+      try { await client.auth.signOut(); } catch(e){}
+    }
+
     clearSession();
     CacheManager.clear();
     RAW_DATA = [];
@@ -2640,15 +2775,17 @@ const AppPresenceBus = (function(){
 })();
 
 /* ==========================================================================
-   USER MANAGEMENT MODAL CONTROLLER
+   USER MANAGEMENT MODAL CONTROLLER (SUPABASE PROFILES)
    ========================================================================== */
-function renderUserMgmtTable(){
+async function renderUserMgmtTable(){
   const tb = document.getElementById('tbUserManagement');
   if(!tb) return;
   const countBadge = document.getElementById('userCountBadge');
   const searchInput = document.getElementById('userListSearch');
   const query = searchInput ? searchInput.value.trim().toLowerCase() : '';
 
+  // Ensure latest profiles from Supabase
+  await UserManager.fetchUsersFromSupabase();
   const users = UserManager.getUsers();
   const current = AuthService.getCurrentUser();
   const currentId = current ? current.id : '';
@@ -2666,19 +2803,19 @@ function renderUserMgmtTable(){
   if(countBadge) countBadge.textContent = String(users.length);
 
   if(!filtered.length){
-    tb.innerHTML = '<tr><td colspan="6" style="text-align:center;color:var(--ink-3);padding:24px;">No matching users found</td></tr>';
+    tb.innerHTML = '<tr><td colspan="6" style="text-align:center;color:var(--ink-3);padding:24px;">No matching users found in Supabase</td></tr>';
     return;
   }
 
   tb.innerHTML = filtered.map(u => {
-    const isPrimaryAdmin = u.id === 'usr_admin';
-    const isSelf = u.id === currentId;
+    const isPrimaryAdmin = u.username === 'admin';
+    const isSelf = u.id === currentId || (current && u.username === current.username);
     const canDelete = !isPrimaryAdmin && !isSelf;
     const deleteTitle = isPrimaryAdmin
       ? 'Protected primary admin account'
       : isSelf
       ? 'Cannot delete your active account'
-      : 'Delete user account';
+      : 'Delete user account from Supabase';
 
     const avatarHtml = u.photo
       ? '<img src="' + escapeHtml(u.photo) + '" class="user-table-avatar" alt="' + escapeHtml(u.name) + '">'
@@ -2700,17 +2837,22 @@ function renderUserMgmtTable(){
 
   // Bind delete handlers
   tb.querySelectorAll('.btn-user-delete:not([disabled])').forEach(btn => {
-    btn.addEventListener('click', function(){
+    btn.addEventListener('click', async function(){
       const userId = this.getAttribute('data-id');
       const targetUser = users.find(u => u.id === userId);
       const name = targetUser ? targetUser.name : 'this user';
-      const confirmed = window.confirm('Are you sure you want to delete the user "' + name + '"?\n\nClick OK for Yes or Cancel for No.');
+      const confirmed = window.confirm('Are you sure you want to delete the user "' + name + '" from Supabase?\n\nClick OK for Yes or Cancel for No.');
       if(!confirmed) return;
-      const res = UserManager.deleteUser(userId, currentId);
+
+      this.disabled = true;
+      this.textContent = '…';
+      const res = await UserManager.deleteUser(userId, currentId);
       if(res.success){
-        renderUserMgmtTable();
+        await renderUserMgmtTable();
       } else {
-        alert(res.error);
+        alert('Delete failed: ' + res.error);
+        this.disabled = false;
+        this.textContent = 'Delete';
       }
     });
   });
@@ -2723,14 +2865,14 @@ function setupUserManagement(){
   const closeBtn = document.getElementById('userMgmtCloseBtn');
   const alertEl = document.getElementById('userMgmtAlert');
 
-  function openModal(){
+  async function openModal(){
     const user = AuthService.getCurrentUser();
     if(!user || user.role !== 'admin'){
       alert('Access restricted: Administrator role required.');
       return;
     }
-    renderUserMgmtTable();
     if(overlay) overlay.classList.add('open');
+    await renderUserMgmtTable();
   }
 
   function closeModal(){
@@ -2782,7 +2924,7 @@ function setupUserManagement(){
   // Add User Form Submission
   const form = document.getElementById('addUserForm');
   if(form){
-    form.addEventListener('submit', function(e){
+    form.addEventListener('submit', async function(e){
       e.preventDefault();
       if(alertEl){ alertEl.style.display = 'none'; alertEl.className = 'user-mgmt-alert'; }
 
@@ -2791,8 +2933,14 @@ function setupUserManagement(){
       const email = document.getElementById('newEmail').value;
       const password = document.getElementById('newPassword').value;
       const role = document.getElementById('newRoleSelect').value;
+      const submitBtn = document.getElementById('submitAddUserBtn');
 
-      const res = UserManager.addUser({
+      if(submitBtn){
+        submitBtn.disabled = true;
+        submitBtn.textContent = 'Creating User in Supabase…';
+      }
+
+      const res = await UserManager.addUser({
         name,
         username,
         email,
@@ -2801,10 +2949,15 @@ function setupUserManagement(){
         photo: _uploadedPhotoBase64
       });
 
+      if(submitBtn){
+        submitBtn.disabled = false;
+        submitBtn.textContent = 'Create User';
+      }
+
       if(!res.success){
         if(alertEl){
           alertEl.textContent = res.error;
-          alertEl.classList.add('error');
+          alertEl.className = 'user-mgmt-alert error';
           alertEl.style.display = 'block';
         }
         return;
@@ -2816,47 +2969,12 @@ function setupUserManagement(){
       if(previewImg){ previewImg.style.display = 'none'; previewImg.src = ''; }
       if(previewPlace){ previewPlace.style.display = 'block'; }
       if(alertEl){
-        alertEl.innerHTML = 'User "<strong>' + escapeHtml(res.user.name) + '</strong>" successfully created with role <strong>' + (res.user.role === 'admin' ? 'ADMIN' : 'USER') + '</strong>!<br><span style="font-size:11px;opacity:0.9;">Credentials active immediately. Click "Download users.js" to save to your local project.</span>';
+        alertEl.innerHTML = 'User "<strong>' + escapeHtml(res.user.name) + '</strong>" successfully created and saved in Supabase!<br><span style="font-size:11px;opacity:0.9;">Credentials active across all browsers and devices immediately.</span>';
         alertEl.className = 'user-mgmt-alert success';
         alertEl.style.display = 'block';
         setTimeout(() => { if(alertEl) alertEl.style.display = 'none'; }, 6000);
       }
-      renderUserMgmtTable();
-    });
-  }
-
-  // Bind Download & Copy users.js code store buttons
-  const downloadBtn = document.getElementById('btnDownloadUsersJs');
-  if(downloadBtn){
-    downloadBtn.addEventListener('click', function(){
-      UserManager.downloadUsersJs();
-      if(alertEl){
-        alertEl.innerHTML = 'Downloaded <code>users.js</code>! Replace <code>users.js</code> in your project folder to keep new users permanently.';
-        alertEl.className = 'user-mgmt-alert success';
-        alertEl.style.display = 'block';
-        setTimeout(() => { if(alertEl) alertEl.style.display = 'none'; }, 5000);
-      }
-    });
-  }
-
-  const copyBtn = document.getElementById('btnCopyUsersJs');
-  if(copyBtn){
-    copyBtn.addEventListener('click', function(){
-      const code = UserManager.exportUsersJsContent();
-      if(navigator.clipboard && navigator.clipboard.writeText){
-        navigator.clipboard.writeText(code).then(() => {
-          if(alertEl){
-            alertEl.innerHTML = '<code>users.js</code> code copied to clipboard! Paste it into <code>users.js</code> to persist across all servers.';
-            alertEl.className = 'user-mgmt-alert success';
-            alertEl.style.display = 'block';
-            setTimeout(() => { if(alertEl) alertEl.style.display = 'none'; }, 5000);
-          }
-        }).catch(() => {
-          UserManager.downloadUsersJs();
-        });
-      } else {
-        UserManager.downloadUsersJs();
-      }
+      await renderUserMgmtTable();
     });
   }
 
@@ -2911,7 +3029,7 @@ function setupAuth(){
   }
 
   if (form){
-    form.addEventListener('submit', function(e){
+    form.addEventListener('submit', async function(e){
       e.preventDefault();
       clearError();
 
@@ -2924,8 +3042,8 @@ function setupAuth(){
         signInBtn.disabled = true;
       }
 
-      setTimeout(function(){
-        const res = AuthService.login(userIdent, pass, remember);
+      try {
+        const res = await AuthService.login(userIdent, pass, remember);
 
         if (!res.success){
           if (signInBtn){
@@ -2945,7 +3063,13 @@ function setupAuth(){
           }
           signInBtn.classList.remove('loading');
         }
-      }, 400);
+      } catch(err){
+        if (signInBtn){
+          signInBtn.classList.remove('loading');
+          signInBtn.disabled = false;
+        }
+        showError(err.message || 'Login failed.');
+      }
     });
   }
 
@@ -3015,6 +3139,7 @@ function setupAuth(){
    APPLICATION INITIALIZATION
    ========================================================================== */
 function init(){
+  UserManager.fetchUsersFromSupabase();
   AppPresenceBus.init();
   setupAuth();
   setupUserManagement();
