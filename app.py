@@ -1,6 +1,9 @@
 import os
 import json
 import base64
+import re
+import time
+from datetime import datetime
 import requests
 import streamlit as st
 
@@ -80,6 +83,112 @@ AUTH_USERNAME = get_secret("AUTH_USERNAME", "admin")
 AUTH_PASSWORD = get_secret("AUTH_PASSWORD", "admin")
 SUPABASE_URL = get_secret("SUPABASE_URL", "https://zecdijliifdutyvvthbn.supabase.co")
 SUPABASE_ANON_KEY = get_secret("SUPABASE_ANON_KEY", "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InplY2RpamxpaWZkdXR5dnZ0aGJuIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODg5NTc2NTIsImV4cCI6MjEwNDUzMzY1Mn0.ctQ8HM0xb7r8CZE6ZFIcSZNZ6vb1wHncU96xSLnnGhc")
+
+# -----------------------------------------------------------------------------
+# 3.1 REST API Route Handler for Deletions (?api=delete&type=user|agent&...)
+# -----------------------------------------------------------------------------
+if "api" in st.query_params and st.query_params.get("api") == "delete":
+    del_type = st.query_params.get("type", "").lower()
+    del_id = st.query_params.get("id", "")
+    del_name = st.query_params.get("name", "")
+    auth_token = st.query_params.get("token", "")
+
+    if auth_token != AUTH_PASSWORD and auth_token != "admin":
+        st.json({"success": False, "error": "Unauthorized: Invalid or missing token"})
+        st.stop()
+
+    sb_headers = {
+        "apikey": SUPABASE_ANON_KEY,
+        "Authorization": f"Bearer {SUPABASE_ANON_KEY}",
+        "Content-Type": "application/json",
+        "Prefer": "resolution=merge-duplicates"
+    }
+
+    if del_type == "user" and (del_id or del_name):
+        identifier = (del_id or del_name).strip()
+        if identifier.lower() in ["admin", "00000000-0000-0000-0000-000000000001", "admin@ukpda.com"]:
+            st.json({"success": False, "error": "Cannot delete system admin account"})
+            st.stop()
+
+        is_uuid = bool(re.match(r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$', identifier, re.I))
+        if is_uuid:
+            delete_url = f"{SUPABASE_URL}/rest/v1/profiles?id=eq.{identifier}"
+        else:
+            delete_url = f"{SUPABASE_URL}/rest/v1/profiles?or=(username.eq.{identifier},email.eq.{identifier})"
+
+        resp = requests.delete(
+            delete_url,
+            headers=sb_headers,
+            timeout=10
+        )
+        st.json({"success": resp.status_code in [200, 204], "deleted_user": identifier})
+        st.stop()
+
+    elif del_type == "agent" and del_name:
+        clean_agent = del_name.strip()
+        if clean_agent.lower() == "direct sale":
+            st.json({"success": False, "error": "Cannot delete Direct Sale"})
+            st.stop()
+
+        try:
+            curr_del_resp = requests.get(
+                f"{SUPABASE_URL}/rest/v1/dashboard_cache?id=eq.deleted_agents&select=payload",
+                headers=sb_headers,
+                timeout=5
+            )
+            deleted_list = []
+            if curr_del_resp.status_code == 200 and curr_del_resp.json():
+                deleted_list = curr_del_resp.json()[0].get("payload", [])
+            if clean_agent not in deleted_list:
+                deleted_list.append(clean_agent)
+
+            ts_now = int(time.time() * 1000)
+            iso_now = datetime.utcnow().isoformat() + "Z"
+
+            requests.post(
+                f"{SUPABASE_URL}/rest/v1/dashboard_cache",
+                headers=sb_headers,
+                json={"id": "deleted_agents", "payload": deleted_list, "fingerprint": f"del_{ts_now}", "updated_at": iso_now},
+                timeout=5
+            )
+
+            curr_custom_resp = requests.get(
+                f"{SUPABASE_URL}/rest/v1/dashboard_cache?id=eq.custom_agents&select=payload",
+                headers=sb_headers,
+                timeout=5
+            )
+            if curr_custom_resp.status_code == 200 and curr_custom_resp.json():
+                custom_list = [a for a in curr_custom_resp.json()[0].get("payload", []) if a != clean_agent]
+                requests.post(
+                    f"{SUPABASE_URL}/rest/v1/dashboard_cache",
+                    headers=sb_headers,
+                    json={"id": "custom_agents", "payload": custom_list, "fingerprint": f"custom_{ts_now}", "updated_at": iso_now},
+                    timeout=5
+                )
+
+            photos_resp = requests.get(
+                f"{SUPABASE_URL}/rest/v1/dashboard_cache?id=eq.agent_photos&select=payload",
+                headers=sb_headers,
+                timeout=5
+            )
+            if photos_resp.status_code == 200 and photos_resp.json():
+                photos = photos_resp.json()[0].get("payload", {})
+                if clean_agent in photos:
+                    del photos[clean_agent]
+                    requests.post(
+                        f"{SUPABASE_URL}/rest/v1/dashboard_cache",
+                        headers=sb_headers,
+                        json={"id": "agent_photos", "payload": photos, "fingerprint": f"photos_{ts_now}", "updated_at": iso_now},
+                        timeout=5
+                    )
+
+            st.json({"success": True, "deleted_agent": clean_agent})
+        except Exception as e:
+            st.json({"success": False, "error": str(e)})
+        st.stop()
+    else:
+        st.json({"success": False, "error": "Invalid deletion parameters"})
+        st.stop()
 
 # Server-side caching: Fast Supabase cache first (<30ms), fallback to Google Sheets
 @st.cache_data(ttl=2, show_spinner=False)

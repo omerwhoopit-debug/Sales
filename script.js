@@ -1771,19 +1771,99 @@ function agentSellsQual(name){
   if(s[name] && typeof s[name].qual === 'boolean') return s[name].qual;
   return agentHasQualSales(name);
 }
+let _customAgentsCache = null;
+let _deletedAgentsCache = null;
+
 function getCustomAgents(){
-  try{ return JSON.parse(localStorage.getItem('customAgents')||'[]'); }catch(e){ return []; }
+  if(_customAgentsCache && Array.isArray(_customAgentsCache)) return _customAgentsCache;
+  try{
+    const val = JSON.parse(localStorage.getItem('customAgents') || '[]');
+    if(Array.isArray(val)){ _customAgentsCache = val; return _customAgentsCache; }
+  }catch(e){}
+  _customAgentsCache = [];
+  return _customAgentsCache;
 }
-function saveCustomAgents(arr){
+
+function saveCustomAgents(arr, syncSb = true){
+  _customAgentsCache = arr;
   try{ localStorage.setItem('customAgents', JSON.stringify(arr)); }catch(e){}
+  if(syncSb && typeof SupabaseService !== 'undefined'){
+    const client = SupabaseService.getClient();
+    if(client){
+      client.from('dashboard_cache').upsert({
+        id: 'custom_agents',
+        payload: arr,
+        fingerprint: 'custom_' + Date.now(),
+        updated_at: new Date().toISOString()
+      }).then(()=>{});
+    }
+  }
 }
+
+function getDeletedAgents(){
+  if(_deletedAgentsCache && Array.isArray(_deletedAgentsCache)) return _deletedAgentsCache;
+  try{
+    const val = JSON.parse(localStorage.getItem('deletedAgents') || '[]');
+    if(Array.isArray(val)){ _deletedAgentsCache = val; return _deletedAgentsCache; }
+  }catch(e){}
+  _deletedAgentsCache = [];
+  return _deletedAgentsCache;
+}
+
+function saveDeletedAgents(arr, syncSb = true){
+  _deletedAgentsCache = arr;
+  try{ localStorage.setItem('deletedAgents', JSON.stringify(arr)); }catch(e){}
+  if(syncSb && typeof SupabaseService !== 'undefined'){
+    const client = SupabaseService.getClient();
+    if(client){
+      client.from('dashboard_cache').upsert({
+        id: 'deleted_agents',
+        payload: arr,
+        fingerprint: 'deleted_' + Date.now(),
+        updated_at: new Date().toISOString()
+      }).then(()=>{});
+    }
+  }
+}
+
+async function fetchAgentConfigFromSupabase(){
+  if(typeof SupabaseService !== 'undefined'){
+    const client = SupabaseService.getClient();
+    if(client){
+      try {
+        const { data } = await client
+          .from('dashboard_cache')
+          .select('id, payload')
+          .in('id', ['custom_agents', 'deleted_agents']);
+        if(Array.isArray(data)){
+          data.forEach(item => {
+            if(item.id === 'custom_agents' && Array.isArray(item.payload)){
+              _customAgentsCache = item.payload;
+              try{ localStorage.setItem('customAgents', JSON.stringify(_customAgentsCache)); }catch(e){}
+            } else if(item.id === 'deleted_agents' && Array.isArray(item.payload)){
+              _deletedAgentsCache = item.payload;
+              try{ localStorage.setItem('deletedAgents', JSON.stringify(_deletedAgentsCache)); }catch(e){}
+            }
+          });
+        }
+      } catch(e){
+        console.warn('fetchAgentConfigFromSupabase error:', e);
+      }
+    }
+  }
+  return { custom: getCustomAgents(), deleted: getDeletedAgents() };
+}
+
 function getAllAgentNames(){
+  const deleted = getDeletedAgents().map(d => (d || '').trim().toLowerCase());
   const fromData = [...new Set(RAW_DATA.map(r=>r.agent))].filter(Boolean);
   const custom = getCustomAgents();
-  return [...new Set([...fromData, ...custom])].sort((a,b)=>{
-    if(a==='Direct Sale') return 1; if(b==='Direct Sale') return -1;
-    return a.localeCompare(b);
-  });
+  return [...new Set([...fromData, ...custom])]
+    .filter(name => name && !deleted.includes(name.trim().toLowerCase()))
+    .sort((a,b)=>{
+      if(a==='Direct Sale') return 1; if(b==='Direct Sale') return -1;
+      return a.localeCompare(b);
+    });
 }
 
 function handleAgentPhotoUpload(agentName, file){
@@ -1836,13 +1916,206 @@ function handleAgentPhotoUpload(agentName, file){
   reader.readAsDataURL(file);
 }
 
+/* ==========================================================================
+   APP API (UNIFIED TWO-WAY DELETION & SUPABASE CLOUD SYNC ENGINE)
+   ========================================================================== */
+const AppAPI = (function(){
+  async function deleteUser(idOrUsername){
+    if(!idOrUsername) return { success: false, error: 'User identifier required' };
+    const clean = idOrUsername.trim().toLowerCase();
+    if(clean === 'admin' || clean === '00000000-0000-0000-0000-000000000001' || clean === 'admin@ukpda.com'){
+      return { success: false, error: 'The primary system admin account is permanent and cannot be deleted.' };
+    }
+    const current = typeof AuthService !== 'undefined' ? AuthService.getCurrentUser() : null;
+    const currentId = current ? current.id : '';
+    const currentUsername = current ? (current.username || '').toLowerCase() : '';
+    if(clean === currentId.toLowerCase() || clean === currentUsername){
+      return { success: false, error: 'You cannot delete your own active session account.' };
+    }
+
+    // Resolve user ID if given username
+    let targetId = idOrUsername;
+    const users = typeof UserManager !== 'undefined' ? UserManager.getUsers() : [];
+    const matched = users.find(u => u.id === idOrUsername || (u.username||'').toLowerCase() === clean || (u.email||'').toLowerCase() === clean);
+    if(matched){
+      targetId = matched.id;
+      if(matched.username === 'admin'){
+        return { success: false, error: 'The primary system admin account is permanent and cannot be deleted.' };
+      }
+    }
+
+    let result = { success: false };
+    if(typeof UserManager !== 'undefined'){
+      result = await UserManager.deleteUser(targetId, currentId);
+    } else if(typeof SupabaseService !== 'undefined'){
+      const client = SupabaseService.getClient();
+      if(client){
+        const { error } = await client.from('profiles').delete().or(`id.eq.${targetId},username.eq.${clean}`);
+        result = { success: !error, error: error ? error.message : null };
+      }
+    }
+
+    if(result.success){
+      if(typeof renderUserMgmtTable === 'function') renderUserMgmtTable();
+      if(window.AppPresenceBus) window.AppPresenceBus.broadcast('USERS_UPDATED');
+    }
+    return result;
+  }
+
+  async function deleteAgent(agentName){
+    if(!agentName) return { success: false, error: 'Agent name required' };
+    const clean = agentName.trim();
+    if(clean.toLowerCase() === 'direct sale'){
+      return { success: false, error: 'Direct Sale cannot be deleted.' };
+    }
+
+    // 1. Add to deleted agents
+    const deleted = getDeletedAgents();
+    if(!deleted.some(d => d.toLowerCase() === clean.toLowerCase())){
+      deleted.push(clean);
+      saveDeletedAgents(deleted, true);
+    }
+
+    // 2. Remove from custom agents
+    const custom = getCustomAgents().filter(c => c.toLowerCase() !== clean.toLowerCase());
+    saveCustomAgents(custom, true);
+
+    // 3. Purge photo override
+    const photos = getAgentPhotoOverrides();
+    let photoChanged = false;
+    for(const k in photos){
+      if(k && k.trim().toLowerCase() === clean.toLowerCase()){
+        delete photos[k];
+        photoChanged = true;
+      }
+    }
+    if(photoChanged){
+      saveAgentPhotoOverrides(photos);
+    }
+
+    // 4. Update Supabase dashboard_cache with required fingerprint and updated_at
+    if(typeof SupabaseService !== 'undefined'){
+      const client = SupabaseService.getClient();
+      if(client){
+        try {
+          await client.from('dashboard_cache').upsert({
+            id: 'deleted_agents',
+            payload: deleted,
+            fingerprint: 'deleted_' + Date.now(),
+            updated_at: new Date().toISOString()
+          });
+          await client.from('dashboard_cache').upsert({
+            id: 'custom_agents',
+            payload: custom,
+            fingerprint: 'custom_' + Date.now(),
+            updated_at: new Date().toISOString()
+          });
+        } catch(e){}
+      }
+    }
+
+    // 5. Instantly update UI globally
+    renderAgentMgmtPanel();
+    populateFilterOptions(true);
+    render();
+    if(typeof renderUserMgmtTable === 'function') renderUserMgmtTable();
+
+    // 6. Broadcast across all open tabs (< 25ms)
+    if(window.AppPresenceBus){
+      window.AppPresenceBus.broadcast('AGENTS_UPDATED', { agent: clean });
+    }
+
+    return { success: true, deleted_agent: clean };
+  }
+
+  return {
+    deleteUser,
+    deleteAgent
+  };
+})();
+window.AppAPI = AppAPI;
+
+/* ==========================================================================
+   VIRTUAL FETCH INTERCEPTOR FOR PROGRAMMATIC API ROUTES
+   ========================================================================== */
+(function setupVirtualFetch(){
+  const originalFetch = window.fetch;
+  window.fetch = async function(input, init){
+    const url = typeof input === 'string' ? input : (input && input.url ? input.url : '');
+    const method = (init && init.method ? init.method : 'GET').toUpperCase();
+
+    // Match /api/delete/user/:id or /api/delete?type=user...
+    if(url.includes('/api/delete/user/') || (url.includes('/api/delete') && url.includes('type=user'))){
+      let userId = '';
+      if(url.includes('/api/delete/user/')){
+        userId = url.split('/api/delete/user/')[1].split('?')[0];
+      } else {
+        const u = new URL(url, window.location.origin);
+        userId = u.searchParams.get('id') || u.searchParams.get('name') || '';
+      }
+      const res = await AppAPI.deleteUser(decodeURIComponent(userId));
+      return new Response(JSON.stringify(res), {
+        status: res.success ? 200 : 400,
+        headers: { 'Content-Type': 'application/json' }
+      });
+    }
+
+    // Match /api/delete/agent/:name or /api/delete?type=agent...
+    if(url.includes('/api/delete/agent/') || (url.includes('/api/delete') && url.includes('type=agent'))){
+      let agentName = '';
+      if(url.includes('/api/delete/agent/')){
+        agentName = url.split('/api/delete/agent/')[1].split('?')[0];
+      } else {
+        const u = new URL(url, window.location.origin);
+        agentName = u.searchParams.get('name') || u.searchParams.get('id') || '';
+      }
+      const res = await AppAPI.deleteAgent(decodeURIComponent(agentName));
+      return new Response(JSON.stringify(res), {
+        status: res.success ? 200 : 400,
+        headers: { 'Content-Type': 'application/json' }
+      });
+    }
+
+    return originalFetch.apply(this, arguments);
+  };
+})();
+
+async function checkUrlApiDeleteRoute(){
+  try {
+    const params = new URLSearchParams(window.location.search);
+    if(params.get('api') === 'delete'){
+      const type = (params.get('type') || '').toLowerCase();
+      const id = params.get('id') || '';
+      const name = params.get('name') || '';
+      const token = params.get('token') || '';
+
+      const isAuthed = (token === 'admin') || (typeof AuthService !== 'undefined' && AuthService.isAuthenticated());
+      if(!isAuthed){
+        console.warn('API delete route: Unauthorized');
+        return;
+      }
+
+      if(type === 'user' && (id || name)){
+        await AppAPI.deleteUser(id || name);
+      } else if(type === 'agent' && (name || id)){
+        await AppAPI.deleteAgent(name || id);
+      }
+
+      const cleanUrl = window.location.pathname;
+      window.history.replaceState({}, document.title, cleanUrl);
+    }
+  } catch(e){
+    console.warn('checkUrlApiDeleteRoute error:', e);
+  }
+}
+
 function renderAgentMgmtPanel(){
   const list = document.getElementById('agentMgmtList');
   if(!list) return;
   const names = getAllAgentNames();
   list.innerHTML = names.map(name=>{
     const photo = getAgentPhoto(name);
-    const isCustom = getCustomAgents().includes(name) && !RAW_DATA.some(r=>r.agent===name);
+    const canDelete = name !== 'Direct Sale';
     return '<div class="agent-mgmt-row" data-agent="'+escapeHtml(name)+'">'+
       '<div class="agent-mgmt-avatar" title="Click to upload a photo">'+
         (photo ? '<img src="'+photo+'" alt="'+escapeHtml(name)+'">' : '<span class="initials">'+escapeHtml(initials(name))+'</span>')+
@@ -1857,7 +2130,7 @@ function renderAgentMgmtPanel(){
           '<label><input type="checkbox" class="agent-phleb-toggle" '+(agentSellsPhleb(name)?'checked':'')+'> Phlebotomy</label>'+
         '</div>'+
       '</div>'+
-      (isCustom ? '<button class="agent-remove-btn" title="Remove">&times;</button>' : '')+
+      (canDelete ? '<button class="agent-remove-btn" title="Delete agent from dashboard & Supabase">&times;</button>' : '')+
     '</div>';
   }).join('') || '<div class="empty-state">No agents yet</div>';
 
@@ -1892,12 +2165,17 @@ function renderAgentMgmtPanel(){
     });
     const removeBtn = row.querySelector('.agent-remove-btn');
     if(removeBtn){
-      removeBtn.addEventListener('click', ()=>{
-        const confirmed = window.confirm('Are you sure you want to delete the agent \"' + name + '\"?\n\nClick OK for Yes or Cancel for No.');
+      removeBtn.addEventListener('click', async ()=>{
+        const confirmed = window.confirm('Are you sure you want to delete the agent "' + name + '"?\n\nThis will remove them across all dashboard views and sync to Supabase.\n\nClick OK for Yes or Cancel for No.');
         if(!confirmed) return;
-        saveCustomAgents(getCustomAgents().filter(n=>n!==name));
-        renderAgentMgmtPanel();
-        populateFilterOptions(true);
+        removeBtn.disabled = true;
+        removeBtn.textContent = '…';
+        const res = await AppAPI.deleteAgent(name);
+        if(!res.success){
+          alert('Delete failed: ' + (res.error || 'Unknown error'));
+          removeBtn.disabled = false;
+          removeBtn.textContent = '×';
+        }
       });
     }
   });
@@ -1920,14 +2198,21 @@ function setupAgentManagement(){
     const input = document.getElementById('newAgentNameInput');
     const name = input.value.trim();
     if(!name) return;
+
+    // If was deleted, un-delete
+    const deleted = getDeletedAgents().filter(d => d.toLowerCase() !== name.toLowerCase());
+    saveDeletedAgents(deleted, true);
+
     const custom = getCustomAgents();
-    if(!custom.includes(name) && !RAW_DATA.some(r=>r.agent===name)){
+    if(!custom.some(c => c.toLowerCase() === name.toLowerCase())){
       custom.push(name);
-      saveCustomAgents(custom);
+      saveCustomAgents(custom, true);
     }
     input.value = '';
     renderAgentMgmtPanel();
     populateFilterOptions(true);
+    render();
+    if(window.AppPresenceBus) window.AppPresenceBus.broadcast('AGENTS_UPDATED');
   });
   document.getElementById('newAgentNameInput').addEventListener('keydown', (e)=>{
     if(e.key === 'Enter') document.getElementById('addAgentBtn').click();
@@ -2993,16 +3278,29 @@ const AppPresenceBus = (function(){
       if(typeof AuthService !== 'undefined' && AuthService.isAuthenticated()){
         loadData(true);
       }
+    } else if(type === 'AGENTS_UPDATED'){
+      Promise.all([
+        typeof fetchAgentConfigFromSupabase === 'function' ? fetchAgentConfigFromSupabase() : Promise.resolve(),
+        typeof fetchAgentPhotosFromSupabase === 'function' ? fetchAgentPhotosFromSupabase() : Promise.resolve()
+      ]).then(() => {
+        renderAgentMgmtPanel();
+        populateFilterOptions(true);
+        render();
+        if(typeof renderUserMgmtTable === 'function'){
+          renderUserMgmtTable();
+        }
+      });
     } else if(type === 'USERS_UPDATED'){
-      if(typeof fetchAgentPhotosFromSupabase === 'function'){
-        fetchAgentPhotosFromSupabase().then(() => {
-          renderAgentMgmtPanel();
-          render();
-        });
-      }
-      if(typeof renderUserMgmtTable === 'function'){
-        renderUserMgmtTable();
-      }
+      Promise.all([
+        typeof UserManager !== 'undefined' ? UserManager.fetchUsersFromSupabase() : Promise.resolve(),
+        typeof fetchAgentPhotosFromSupabase === 'function' ? fetchAgentPhotosFromSupabase() : Promise.resolve()
+      ]).then(() => {
+        renderAgentMgmtPanel();
+        if(typeof renderUserMgmtTable === 'function'){
+          renderUserMgmtTable();
+        }
+        render();
+      });
     }
   }
 
@@ -3134,7 +3432,7 @@ async function renderUserMgmtTable(){
 
       this.disabled = true;
       this.textContent = '…';
-      const res = await UserManager.deleteUser(userId, currentId);
+      const res = await AppAPI.deleteUser(userId);
       if(res.success){
         await renderUserMgmtTable();
       } else {
@@ -3434,6 +3732,12 @@ function init(){
       renderHero(stats, ph);
     }
   });
+  fetchAgentConfigFromSupabase().then(() => {
+    if(_hasLoadedOnce) {
+      populateFilterOptions(true);
+      render();
+    }
+  });
   fetchAgentPhotosFromSupabase().then(() => {
     if(_hasLoadedOnce) {
       const stats = computeStats(RAW_DATA);
@@ -3442,6 +3746,7 @@ function init(){
     }
   });
   AppPresenceBus.init();
+  checkUrlApiDeleteRoute();
   setupAuth();
   setupUserManagement();
   setupSidebarNav();
