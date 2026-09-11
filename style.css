@@ -653,6 +653,8 @@ footer{text-align:center;color:var(--ink-3);font-size:11px;padding:30px 0 10px;}
   opacity:0;transition:opacity .15s;color:#fff;
 }
 .agent-mgmt-avatar:hover .photo-edit-hint{opacity:1;}
+.agent-mgmt-avatar.is-readonly-avatar{cursor:default;}
+.agent-mgmt-avatar.is-readonly-avatar .photo-edit-hint{display:none !important;}
 .agent-mgmt-info{flex:1;min-width:0;}
 .agent-mgmt-name{font-size:13.5px;font-weight:700;color:var(--ink);}
 .agent-mgmt-toggles{display:flex;gap:14px;margin-top:4px;flex-wrap:wrap;}
@@ -1578,18 +1580,22 @@ body.logged-in #bg {
 }
 
 /* ---------------- RBAC User-Role Gating ---------------- */
-body.role-user #navManageAgents,
 body.role-user #navManageUsers,
 body.role-user #exportBtn,
 body.role-user #udmManageUsersBtn {
   display: none !important;
 }
-body.role-user .agent-mgmt-toggles input[type="checkbox"],
-body.role-user .agent-remove-btn,
-body.role-user #addAgentBtn,
-body.role-user #newAgentNameInput {
-  pointer-events: none !important;
-  opacity: 0.5 !important;
+body.role-user .agent-mgmt-avatar {
+  cursor: default !important;
+}
+body.role-user .agent-mgmt-avatar .photo-edit-hint {
+  display: none !important;
+}
+body.role-user .add-agent-row {
+  display: none !important;
+}
+body.role-user .agent-remove-btn {
+  display: none !important;
 }
 
 

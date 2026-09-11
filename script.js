@@ -1867,6 +1867,11 @@ function getAllAgentNames(){
 }
 
 function handleAgentPhotoUpload(agentName, file){
+  const curUser = typeof AuthService !== 'undefined' ? AuthService.getCurrentUser() : null;
+  if(!curUser || curUser.role !== 'admin'){
+    alert('Access restricted: Only administrator accounts can change agent photos.');
+    return;
+  }
   if(!file || !file.type.startsWith('image/')) return;
   const reader = new FileReader();
   reader.onload = function(e){
@@ -2113,14 +2118,32 @@ function renderAgentMgmtPanel(){
   const list = document.getElementById('agentMgmtList');
   if(!list) return;
   const names = getAllAgentNames();
+  const curUser = typeof AuthService !== 'undefined' ? AuthService.getCurrentUser() : null;
+  const isAdmin = curUser && curUser.role === 'admin';
+
+  // Role-appropriate description hint
+  const modalHint = document.querySelector('#agentMgmtOverlay .modal-hint');
+  if(modalHint){
+    modalHint.textContent = isAdmin
+      ? 'Add a new agent, upload their photo, and set whether they sell CPD or Phlebotomy courses. New agents are automatically included everywhere in the dashboard — filters, tables, and reports — just like existing ones.'
+      : 'Tick or untick courses (Qualifications, CPD, Phlebotomy) for each agent to customize which course data is displayed in your dashboard views.';
+  }
+
+  // Only admin can see and use the Add Agent input row
+  const addAgentRow = document.querySelector('#agentMgmtOverlay .add-agent-row');
+  if(addAgentRow){
+    addAgentRow.style.display = isAdmin ? 'flex' : 'none';
+  }
+
   list.innerHTML = names.map(name=>{
     const photo = getAgentPhoto(name);
-    const canDelete = name !== 'Direct Sale';
+    const canDelete = isAdmin && name !== 'Direct Sale';
+    const avatarTitle = isAdmin ? 'Click to upload a photo' : 'Photo can only be changed by Admin';
+
     return '<div class="agent-mgmt-row" data-agent="'+escapeHtml(name)+'">'+
-      '<div class="agent-mgmt-avatar" title="Click to upload a photo">'+
+      '<div class="agent-mgmt-avatar ' + (isAdmin ? 'is-admin-avatar' : 'is-readonly-avatar') + '" title="' + escapeHtml(avatarTitle) + '">'+
         (photo ? '<img src="'+photo+'" alt="'+escapeHtml(name)+'">' : '<span class="initials">'+escapeHtml(initials(name))+'</span>')+
-        '<div class="photo-edit-hint"><svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M4 7h3l2-3h6l2 3h3v13H4V7Z" stroke="#fff" stroke-width="1.8" stroke-linejoin="round"/><circle cx="12" cy="13" r="3.2" stroke="#fff" stroke-width="1.8"/></svg></div>'+
-        '<input type="file" accept="image/*" class="agent-photo-input" style="display:none;">'+
+        (isAdmin ? '<div class="photo-edit-hint"><svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M4 7h3l2-3h6l2 3h3v13H4V7Z" stroke="#fff" stroke-width="1.8" stroke-linejoin="round"/><circle cx="12" cy="13" r="3.2" stroke="#fff" stroke-width="1.8"/></svg></div><input type="file" accept="image/*" class="agent-photo-input" style="display:none;">' : '')+
       '</div>'+
       '<div class="agent-mgmt-info">'+
         '<div class="agent-mgmt-name">'+escapeHtml(name)+'</div>'+
@@ -2136,12 +2159,20 @@ function renderAgentMgmtPanel(){
 
   list.querySelectorAll('.agent-mgmt-row').forEach(row=>{
     const name = row.getAttribute('data-agent');
-    const avatar = row.querySelector('.agent-mgmt-avatar');
-    const fileInput = row.querySelector('.agent-photo-input');
-    avatar.addEventListener('click', ()=> fileInput.click());
-    fileInput.addEventListener('change', (e)=>{
-      if(e.target.files && e.target.files[0]) handleAgentPhotoUpload(name, e.target.files[0]);
-    });
+
+    // Only attach photo upload listeners if admin
+    if(isAdmin){
+      const avatar = row.querySelector('.agent-mgmt-avatar');
+      const fileInput = row.querySelector('.agent-photo-input');
+      if(avatar && fileInput){
+        avatar.addEventListener('click', ()=> fileInput.click());
+        fileInput.addEventListener('change', (e)=>{
+          if(e.target.files && e.target.files[0]) handleAgentPhotoUpload(name, e.target.files[0]);
+        });
+      }
+    }
+
+    // Course toggles: Active for ALL accounts
     row.querySelector('.agent-qual-toggle').addEventListener('change', (e)=>{
       const s = getAgentSettings();
       s[name] = s[name] || {};
@@ -2163,8 +2194,10 @@ function renderAgentMgmtPanel(){
       saveAgentSettings(s);
       render();
     });
+
+    // Delete agent: Only available for admin
     const removeBtn = row.querySelector('.agent-remove-btn');
-    if(removeBtn){
+    if(removeBtn && isAdmin){
       removeBtn.addEventListener('click', async ()=>{
         const confirmed = window.confirm('Are you sure you want to delete the agent "' + name + '"?\n\nThis will remove them across all dashboard views and sync to Supabase.\n\nClick OK for Yes or Cancel for No.');
         if(!confirmed) return;
@@ -2194,29 +2227,45 @@ function setupAgentManagement(){
   });
   closeBtn.addEventListener('click', ()=> overlay.classList.remove('open'));
   overlay.addEventListener('click', (e)=>{ if(e.target === overlay) overlay.classList.remove('open'); });
-  document.getElementById('addAgentBtn').addEventListener('click', ()=>{
-    const input = document.getElementById('newAgentNameInput');
-    const name = input.value.trim();
-    if(!name) return;
 
-    // If was deleted, un-delete
-    const deleted = getDeletedAgents().filter(d => d.toLowerCase() !== name.toLowerCase());
-    saveDeletedAgents(deleted, true);
+  const addBtn = document.getElementById('addAgentBtn');
+  if(addBtn){
+    addBtn.addEventListener('click', ()=>{
+      const curUser = typeof AuthService !== 'undefined' ? AuthService.getCurrentUser() : null;
+      if(!curUser || curUser.role !== 'admin'){
+        alert('Access restricted: Only administrator accounts can add new agents.');
+        return;
+      }
+      const input = document.getElementById('newAgentNameInput');
+      const name = input.value.trim();
+      if(!name) return;
 
-    const custom = getCustomAgents();
-    if(!custom.some(c => c.toLowerCase() === name.toLowerCase())){
-      custom.push(name);
-      saveCustomAgents(custom, true);
-    }
-    input.value = '';
-    renderAgentMgmtPanel();
-    populateFilterOptions(true);
-    render();
-    if(window.AppPresenceBus) window.AppPresenceBus.broadcast('AGENTS_UPDATED');
-  });
-  document.getElementById('newAgentNameInput').addEventListener('keydown', (e)=>{
-    if(e.key === 'Enter') document.getElementById('addAgentBtn').click();
-  });
+      // If was deleted, un-delete
+      const deleted = getDeletedAgents().filter(d => d.toLowerCase() !== name.toLowerCase());
+      saveDeletedAgents(deleted, true);
+
+      const custom = getCustomAgents();
+      if(!custom.some(c => c.toLowerCase() === name.toLowerCase())){
+        custom.push(name);
+        saveCustomAgents(custom, true);
+      }
+      input.value = '';
+      renderAgentMgmtPanel();
+      populateFilterOptions(true);
+      render();
+      if(window.AppPresenceBus) window.AppPresenceBus.broadcast('AGENTS_UPDATED');
+    });
+  }
+
+  const nameInput = document.getElementById('newAgentNameInput');
+  if(nameInput){
+    nameInput.addEventListener('keydown', (e)=>{
+      if(e.key === 'Enter'){
+        const addBtn = document.getElementById('addAgentBtn');
+        if(addBtn) addBtn.click();
+      }
+    });
+  }
 }
 
 /* ---------------- Monthly Comparison Feature ---------------- */
@@ -3029,7 +3078,7 @@ const AuthService = (function(){
     const expBtn = document.getElementById('exportBtn');
 
     if(navUsers) navUsers.style.display = isAdmin ? 'flex' : 'none';
-    if(navAgents) navAgents.style.display = isAdmin ? 'flex' : 'none';
+    if(navAgents) navAgents.style.display = 'flex';
     if(udmUsers) udmUsers.style.display = isAdmin ? 'flex' : 'none';
     if(expBtn) expBtn.style.display = isAdmin ? 'inline-flex' : 'none';
 
