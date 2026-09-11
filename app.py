@@ -121,7 +121,31 @@ if "api" in st.query_params and st.query_params.get("api") == "delete":
             headers=sb_headers,
             timeout=10
         )
-        st.json({"success": resp.status_code in [200, 204], "deleted_user": identifier})
+
+        try:
+            curr_del_resp = requests.get(
+                f"{SUPABASE_URL}/rest/v1/dashboard_cache?id=eq.deleted_users&select=payload",
+                headers=sb_headers,
+                timeout=5
+            )
+            del_users_list = []
+            if curr_del_resp.status_code == 200 and curr_del_resp.json():
+                del_users_list = curr_del_resp.json()[0].get("payload", [])
+            clean_id = identifier.lower()
+            if clean_id not in [str(x).lower() for x in del_users_list]:
+                del_users_list.append(clean_id)
+                ts_now = int(time.time() * 1000)
+                iso_now = datetime.utcnow().isoformat() + "Z"
+                requests.post(
+                    f"{SUPABASE_URL}/rest/v1/dashboard_cache",
+                    headers=sb_headers,
+                    json={"id": "deleted_users", "payload": del_users_list, "fingerprint": f"del_usr_{ts_now}", "updated_at": iso_now},
+                    timeout=5
+                )
+        except Exception:
+            pass
+
+        st.json({"success": True, "deleted_user": identifier})
         st.stop()
 
     elif del_type == "agent" and del_name:

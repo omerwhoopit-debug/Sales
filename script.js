@@ -1681,10 +1681,11 @@ function saveAgentPhotoOverrides(obj, specificAgentName, dataUrl){
       }).then(()=>{});
 
       // 2. If this agent has a user account in Supabase profiles, sync avatar_base64 there too
-      if(specificAgentName && dataUrl){
+      if(specificAgentName){
         const cleanName = specificAgentName.trim().toLowerCase();
+        const avatarVal = (dataUrl === 'REMOVED') ? '' : (dataUrl || '');
         client.from('profiles')
-          .update({ avatar_base64: dataUrl })
+          .update({ avatar_base64: avatarVal })
           .or(`username.ilike.${cleanName},full_name.ilike.%${cleanName}%`)
           .then(()=>{
             if(typeof UserManager !== 'undefined') UserManager.fetchUsersFromSupabase();
@@ -1723,7 +1724,10 @@ function getAgentPhoto(name){
   // 1. Check custom overrides (Supabase & localStorage)
   const overrides = getAgentPhotoOverrides();
   for(const k in overrides){
-    if(k && k.trim().toLowerCase() === clean && overrides[k]) return overrides[k];
+    if(k && k.trim().toLowerCase() === clean){
+      if(overrides[k] === 'REMOVED') return null; // Explicitly removed: suppress bundled and user photos
+      if(overrides[k]) return overrides[k];
+    }
   }
 
   // 2. Fetch from Supabase profiles (matches user full name, username, or first name)
@@ -1914,11 +1918,51 @@ function handleAgentPhotoUpload(agentName, file){
       // 5. Broadcast to all other open tabs
       if(window.AppPresenceBus){
         window.AppPresenceBus.broadcast('USERS_UPDATED');
+        window.AppPresenceBus.broadcast('AGENTS_UPDATED');
       }
     };
     img.src = e.target.result;
   };
   reader.readAsDataURL(file);
+}
+
+function removeAgentPhoto(agentName){
+  const curUser = typeof AuthService !== 'undefined' ? AuthService.getCurrentUser() : null;
+  if(!curUser || curUser.role !== 'admin'){
+    alert('Access restricted: Only administrator accounts can remove agent photos.');
+    return;
+  }
+  const clean = (agentName || '').trim();
+  if(!clean) return;
+
+  const overrides = getAgentPhotoOverrides();
+  overrides[clean] = 'REMOVED';
+  saveAgentPhotoOverrides(overrides, clean, 'REMOVED');
+
+  // Immediately reflect across all UI elements:
+  renderAgentMgmtPanel();
+  render();
+  if(typeof renderUserMgmtTable === 'function'){
+    renderUserMgmtTable();
+  }
+
+  // Clear avatar if current user matches this agent
+  if(curUser){
+    const cName = (curUser.name || '').toLowerCase();
+    const cUser = (curUser.username || '').toLowerCase();
+    const aName = clean.toLowerCase();
+    if(cName.includes(aName) || aName.includes(cName) || cUser === aName){
+      curUser.photo = '';
+      const s = AuthService.getSession();
+      if(s){ s.user.photo = ''; AuthService.setSession(s, true); }
+      AuthService.applyRoleUI(curUser);
+    }
+  }
+
+  if(window.AppPresenceBus){
+    window.AppPresenceBus.broadcast('USERS_UPDATED');
+    window.AppPresenceBus.broadcast('AGENTS_UPDATED');
+  }
 }
 
 /* ==========================================================================
@@ -2138,7 +2182,17 @@ function renderAgentMgmtPanel(){
   list.innerHTML = names.map(name=>{
     const photo = getAgentPhoto(name);
     const canDelete = isAdmin && name !== 'Direct Sale';
-    const avatarTitle = isAdmin ? 'Click to upload a photo' : 'Photo can only be changed by Admin';
+    const avatarTitle = isAdmin ? (photo ? 'Click to change photo' : 'Click to add photo') : 'Photo managed by Administrator';
+
+    let photoActionsHtml = '';
+    if(isAdmin){
+      photoActionsHtml = '<div class="agent-photo-actions">' +
+        '<button type="button" class="btn-agent-photo btn-change-photo" title="' + (photo ? 'Change photo' : 'Add photo') + '">' +
+          (photo ? '<svg width="12" height="12" viewBox="0 0 24 24" fill="none"><path d="M4 7h3l2-3h6l2 3h3v13H4V7Z" stroke="currentColor" stroke-width="2"/><circle cx="12" cy="13" r="3" stroke="currentColor" stroke-width="2"/></svg> Change' : '<svg width="12" height="12" viewBox="0 0 24 24" fill="none"><path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="2"/></svg> Add Photo') +
+        '</button>' +
+        (photo ? '<button type="button" class="btn-agent-photo btn-remove-photo" title="Remove photo and revert to initials"><svg width="12" height="12" viewBox="0 0 24 24" fill="none"><path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" stroke="currentColor" stroke-width="2"/></svg> Remove</button>' : '') +
+      '</div>';
+    }
 
     return '<div class="agent-mgmt-row" data-agent="'+escapeHtml(name)+'">'+
       '<div class="agent-mgmt-avatar ' + (isAdmin ? 'is-admin-avatar' : 'is-readonly-avatar') + '" title="' + escapeHtml(avatarTitle) + '">'+
@@ -2146,7 +2200,10 @@ function renderAgentMgmtPanel(){
         (isAdmin ? '<div class="photo-edit-hint"><svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M4 7h3l2-3h6l2 3h3v13H4V7Z" stroke="#fff" stroke-width="1.8" stroke-linejoin="round"/><circle cx="12" cy="13" r="3.2" stroke="#fff" stroke-width="1.8"/></svg></div><input type="file" accept="image/*" class="agent-photo-input" style="display:none;">' : '')+
       '</div>'+
       '<div class="agent-mgmt-info">'+
-        '<div class="agent-mgmt-name">'+escapeHtml(name)+'</div>'+
+        '<div class="agent-mgmt-header-line">'+
+          '<div class="agent-mgmt-name">'+escapeHtml(name)+'</div>'+
+          photoActionsHtml +
+        '</div>'+
         '<div class="agent-mgmt-toggles">'+
           '<label><input type="checkbox" class="agent-qual-toggle" '+(agentSellsQual(name)?'checked':'')+'> Qualifications</label>'+
           '<label><input type="checkbox" class="agent-cpd-toggle" '+(agentSellsCpd(name)?'checked':'')+'> CPD</label>'+
@@ -2160,14 +2217,34 @@ function renderAgentMgmtPanel(){
   list.querySelectorAll('.agent-mgmt-row').forEach(row=>{
     const name = row.getAttribute('data-agent');
 
-    // Only attach photo upload listeners if admin
+    // Only attach photo upload & remove listeners if admin
     if(isAdmin){
       const avatar = row.querySelector('.agent-mgmt-avatar');
       const fileInput = row.querySelector('.agent-photo-input');
+      const changeBtn = row.querySelector('.btn-change-photo');
+      const removePhotoBtn = row.querySelector('.btn-remove-photo');
+
       if(avatar && fileInput){
         avatar.addEventListener('click', ()=> fileInput.click());
+      }
+      if(changeBtn && fileInput){
+        changeBtn.addEventListener('click', (e)=>{
+          e.stopPropagation();
+          fileInput.click();
+        });
+      }
+      if(fileInput){
         fileInput.addEventListener('change', (e)=>{
           if(e.target.files && e.target.files[0]) handleAgentPhotoUpload(name, e.target.files[0]);
+        });
+      }
+      if(removePhotoBtn){
+        removePhotoBtn.addEventListener('click', (e)=>{
+          e.stopPropagation();
+          const confirmed = window.confirm('Remove photo for agent "' + name + '" and revert to initials?\n\nClick OK for Yes or Cancel for No.');
+          if(confirmed){
+            removeAgentPhoto(name);
+          }
         });
       }
     }
@@ -2700,6 +2777,56 @@ const UserManager = (function(){
   ];
 
   let _cachedUsers = null;
+  let _deletedUsersCache = null;
+
+  function getDeletedUsers(){
+    if(_deletedUsersCache && Array.isArray(_deletedUsersCache)) return _deletedUsersCache;
+    try {
+      const val = JSON.parse(localStorage.getItem('deletedUsers') || '[]');
+      if(Array.isArray(val)){ _deletedUsersCache = val; return _deletedUsersCache; }
+    } catch(e){}
+    _deletedUsersCache = [];
+    return _deletedUsersCache;
+  }
+
+  function saveDeletedUsers(arr, syncSb = true){
+    _deletedUsersCache = arr;
+    try { localStorage.setItem('deletedUsers', JSON.stringify(arr)); } catch(e){}
+    if(syncSb && typeof SupabaseService !== 'undefined'){
+      const client = SupabaseService.getClient();
+      if(client){
+        client.from('dashboard_cache').upsert({
+          id: 'deleted_users',
+          payload: arr,
+          fingerprint: 'del_usr_' + Date.now(),
+          updated_at: new Date().toISOString()
+        }).then(()=>{}, ()=>{});
+      }
+    }
+  }
+
+  async function fetchDeletedUsersFromSupabase(){
+    if(typeof SupabaseService !== 'undefined'){
+      const client = SupabaseService.getClient();
+      if(client){
+        try {
+          const { data } = await client
+            .from('dashboard_cache')
+            .select('payload')
+            .eq('id', 'deleted_users')
+            .maybeSingle();
+          if(data && Array.isArray(data.payload)){
+            _deletedUsersCache = data.payload;
+            try { localStorage.setItem('deletedUsers', JSON.stringify(_deletedUsersCache)); } catch(e){}
+            return _deletedUsersCache;
+          }
+        } catch(e){
+          console.warn('fetchDeletedUsersFromSupabase error:', e);
+        }
+      }
+    }
+    return getDeletedUsers();
+  }
 
   function mapProfile(p){
     return {
@@ -2715,8 +2842,21 @@ const UserManager = (function(){
   }
 
   async function fetchUsersFromSupabase(){
+    await fetchDeletedUsersFromSupabase();
+    const deleted = getDeletedUsers().map(d => String(d || '').trim().toLowerCase());
+    const isNotDeleted = u => {
+      const uid = String(u.id || '').toLowerCase();
+      const uuser = String(u.username || '').toLowerCase();
+      const uemail = String(u.email || '').toLowerCase();
+      return !deleted.includes(uid) && !deleted.includes(uuser) && !deleted.includes(uemail);
+    };
+
     const client = SupabaseService.getClient();
-    if(!client) return getUsers();
+    if(!client){
+      const current = getUsers();
+      _cachedUsers = current.filter(isNotDeleted);
+      return _cachedUsers;
+    }
     try {
       const { data, error } = await client
         .from('profiles')
@@ -2729,8 +2869,9 @@ const UserManager = (function(){
         return getUsers();
       }
 
-      if(Array.isArray(data) && data.length > 0){
-        _cachedUsers = data.map(mapProfile);
+      if(Array.isArray(data)){
+        const mapped = data.map(mapProfile);
+        _cachedUsers = mapped.filter(isNotDeleted);
         try { localStorage.setItem(STORAGE_KEY, JSON.stringify(_cachedUsers)); } catch(e){}
         return _cachedUsers;
       }
@@ -2742,26 +2883,37 @@ const UserManager = (function(){
   }
 
   function getUsers(){
-    if(_cachedUsers && _cachedUsers.length > 0) return _cachedUsers;
+    const deleted = getDeletedUsers().map(d => String(d || '').trim().toLowerCase());
+    const isNotDeleted = u => {
+      const uid = String(u.id || '').toLowerCase();
+      const uuser = String(u.username || '').toLowerCase();
+      const uemail = String(u.email || '').toLowerCase();
+      return !deleted.includes(uid) && !deleted.includes(uuser) && !deleted.includes(uemail);
+    };
+
+    if(_cachedUsers && _cachedUsers.length > 0) return _cachedUsers.filter(isNotDeleted);
     try {
       const raw = localStorage.getItem(STORAGE_KEY) || sessionStorage.getItem(STORAGE_KEY);
       if(raw){
         const parsed = JSON.parse(raw);
         if(Array.isArray(parsed) && parsed.length > 0){
-          _cachedUsers = parsed;
+          _cachedUsers = parsed.filter(isNotDeleted);
           return _cachedUsers;
         }
       }
     } catch(e){}
-    _cachedUsers = [...DEFAULT_USERS];
+    _cachedUsers = DEFAULT_USERS.filter(isNotDeleted);
     return _cachedUsers;
   }
 
   function findUser(identifier){
     if(!identifier) return null;
     const norm = identifier.trim().toLowerCase();
+    const deleted = getDeletedUsers().map(d => String(d || '').trim().toLowerCase());
+    if(deleted.includes(norm)) return null;
+
     const users = getUsers();
-    return users.find(u => (u.username||'').toLowerCase() === norm || (u.email||'').toLowerCase() === norm) || null;
+    return users.find(u => (u.username||'').toLowerCase() === norm || (u.email||'').toLowerCase() === norm || (u.id||'').toLowerCase() === norm) || null;
   }
 
   async function addUser({ name, username, email, password, role, photo }){
@@ -2816,6 +2968,11 @@ const UserManager = (function(){
         const updatedUsers = await fetchUsersFromSupabase();
         const created = updatedUsers.find(u => (u.username||'').toLowerCase() === normUser);
         if(created){
+          const delUsers = getDeletedUsers().filter(d => {
+            const low = String(d || '').toLowerCase();
+            return low !== normUser && low !== normEmail && low !== String(created.id).toLowerCase();
+          });
+          saveDeletedUsers(delUsers, true);
           if(window.AppPresenceBus) window.AppPresenceBus.broadcast('USERS_UPDATED');
           return { success: true, user: created };
         }
@@ -2843,38 +3000,46 @@ const UserManager = (function(){
   }
 
   async function deleteUser(id, activeUserId){
+    if(!id) return { success: false, error: 'User identifier required' };
     if(id === '00000000-0000-0000-0000-000000000001'){
       return { success: false, error: 'The primary system admin account is permanent and cannot be deleted.' };
     }
-    const target = (getUsers() || []).find(u => u.id === id);
-    if(target && target.username === 'admin'){
+    const allUsers = getUsers() || [];
+    const target = allUsers.find(u => u.id === id || (u.username||'').toLowerCase() === id.toLowerCase() || (u.email||'').toLowerCase() === id.toLowerCase());
+    if(target && (target.username === 'admin' || target.id === '00000000-0000-0000-0000-000000000001' || target.email === 'admin@ukpda.com')){
       return { success: false, error: 'The primary system admin account is permanent and cannot be deleted.' };
     }
-    if(id === activeUserId){
+    const targetId = target ? target.id : id;
+    if(targetId === activeUserId || (target && target.username === activeUserId)){
       return { success: false, error: 'You cannot delete your own active session account.' };
     }
 
+    // 1. Add identifiers to deleted_users list in dashboard_cache & localStorage
+    const deleted = getDeletedUsers();
+    const toAdd = [targetId.toLowerCase()];
+    if(target){
+      if(target.username) toAdd.push(target.username.toLowerCase());
+      if(target.email) toAdd.push(target.email.toLowerCase());
+    }
+    toAdd.forEach(item => {
+      if(item && !deleted.includes(item)) deleted.push(item);
+    });
+    saveDeletedUsers(deleted, true);
+
+    // 2. Optimistically purge from memory and local storage
+    _cachedUsers = (getUsers() || []).filter(u => u.id !== targetId && (!target || u.username !== target.username));
+    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(_cachedUsers)); } catch(e){}
+
+    // 3. Send delete/inactivate request to Supabase profiles (best-effort)
     const client = SupabaseService.getClient();
     if(client){
       try {
-        const { error } = await client
-          .from('profiles')
-          .delete()
-          .eq('id', id);
-        if(error){
-          return { success: false, error: error.message };
-        }
-        await fetchUsersFromSupabase();
-        if(window.AppPresenceBus) window.AppPresenceBus.broadcast('USERS_UPDATED');
-        return { success: true };
-      } catch(err){
-        return { success: false, error: err.message };
-      }
+        await client.from('profiles').delete().eq('id', targetId);
+        await client.from('profiles').update({ is_active: false }).eq('id', targetId);
+      } catch(e){}
     }
 
-    // Local fallback
-    _cachedUsers = getUsers().filter(u => u.id !== id);
-    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(_cachedUsers)); } catch(e){}
+    if(window.AppPresenceBus) window.AppPresenceBus.broadcast('USERS_UPDATED');
     return { success: true };
   }
 
@@ -2937,6 +3102,9 @@ const UserManager = (function(){
     findUser,
     addUser,
     deleteUser,
+    getDeletedUsers,
+    saveDeletedUsers,
+    fetchDeletedUsersFromSupabase,
     updateProfileOptimistic,
     compressImage
   };
@@ -2958,15 +3126,19 @@ const CacheManager = (function(){
 })();
 
 /* ==========================================================================
-   AUTHENTICATION SERVICE (STRICT 1-HOUR TOKEN LIFECYCLE & ROUTE GUARD)
+   AUTHENTICATION SERVICE (STRICT 5-HOUR TOKEN LIFECYCLE & ROUTE GUARD)
    ========================================================================== */
 const AuthService = (function(){
   const SESSION_KEY = 'ukpda_auth_session';
-  const TOKEN_LIFETIME_MS = 3600000; // 1 hour token expiration
+  const TOKEN_LIFETIME_MS = 5 * 3600 * 1000; // 5 hours token expiration (18,000,000 ms)
   let _sessionCheckTimer = null;
   let _activeSyncInterval = null;
+  let _currentSession = null;
 
   function getSession(){
+    if(_currentSession && _currentSession.expiresAt && Date.now() < _currentSession.expiresAt && _currentSession.user){
+      return _currentSession;
+    }
     try {
       let raw = localStorage.getItem(SESSION_KEY) || sessionStorage.getItem(SESSION_KEY);
       if(!raw) return null;
@@ -2979,6 +3151,7 @@ const AuthService = (function(){
         clearSession();
         return null;
       }
+      _currentSession = session;
       return session;
     } catch(e){
       clearSession();
@@ -2987,8 +3160,10 @@ const AuthService = (function(){
   }
 
   function setSession(session, remember){
+    _currentSession = session;
     try {
       clearSession();
+      _currentSession = session;
       const raw = JSON.stringify(session);
       if(remember){
         localStorage.setItem(SESSION_KEY, raw);
@@ -2999,6 +3174,7 @@ const AuthService = (function(){
   }
 
   function clearSession(){
+    _currentSession = null;
     try {
       localStorage.removeItem(SESSION_KEY);
       sessionStorage.removeItem(SESSION_KEY);
@@ -3038,12 +3214,19 @@ const AuthService = (function(){
       handleExpiredSession();
       return;
     }
-    const mins = Math.max(1, Math.ceil(remMs / 60000));
-    if(badge) badge.textContent = mins + 'm';
+    const hrs = Math.floor(remMs / 3600000);
+    const mins = Math.ceil((remMs % 3600000) / 60000);
+    if(badge){
+      if(hrs > 0){
+        badge.textContent = hrs + 'h ' + (mins > 0 ? mins + 'm' : '');
+      } else {
+        badge.textContent = mins + 'm';
+      }
+    }
   }
 
   function handleExpiredSession(){
-    logout('Your session has expired (1 hour limit). Please sign in again.');
+    logout('Your session has expired (5 hour limit). Please sign in again.');
   }
 
   // Strict Navigation Guard: no URL manipulation can bypass the login screen
@@ -3148,9 +3331,6 @@ const AuthService = (function(){
 
         if(authData && authData.session){
           token = authData.session.access_token;
-          if(authData.session.expires_at){
-            expiresAt = authData.session.expires_at * 1000;
-          }
         }
       } catch(authErr){
         console.warn('Supabase Auth network error, checking credentials:', authErr);
@@ -3186,13 +3366,19 @@ const AuthService = (function(){
     const bg = document.getElementById('bg');
     if(overlay){
       overlay.classList.add('hide');
-      setTimeout(()=>{ overlay.style.display = 'none'; }, 600);
+      overlay.style.display = 'none';
     }
     if(bg){
       bg.classList.add('hide');
-      setTimeout(()=>{ bg.style.display = 'none'; }, 600);
+      bg.style.display = 'none';
     }
 
+    const errorBanner = document.getElementById('errorBanner');
+    if(errorBanner) errorBanner.classList.remove('show');
+
+    _hasLoadedOnce = false;
+    _lastDataFingerprint = '';
+    _isSheetFetching = false;
     startDataSync();
     return { success: true, user: session.user };
   }
@@ -3208,10 +3394,25 @@ const AuthService = (function(){
     RAW_DATA = [];
     CPD_DATA = [];
     PHLEB_DATA = [];
+    _hasLoadedOnce = false;
+    _lastDataFingerprint = '';
+    _isSheetFetching = false;
 
     if(_sessionCheckTimer) clearInterval(_sessionCheckTimer);
     if(_activeSyncInterval) clearInterval(_activeSyncInterval);
     _activeSyncInterval = null;
+
+    // Reset login button to clean enabled state
+    const signInBtn = document.getElementById('signInBtn');
+    if(signInBtn){
+      signInBtn.classList.remove('loading', 'success');
+      signInBtn.disabled = false;
+      const btnText = signInBtn.querySelector('.btn-text');
+      if(btnText) btnText.textContent = 'Sign In';
+    }
+
+    const passInput = document.getElementById('password');
+    if(passInput) passInput.value = '';
 
     document.body.classList.remove('logged-in', 'role-admin', 'role-user');
     enforceRouteGuard();
@@ -3697,6 +3898,13 @@ function setupAuth(){
             btnText.style.display = 'inline';
           }
           signInBtn.classList.remove('loading');
+          setTimeout(() => {
+            if (signInBtn){
+              signInBtn.classList.remove('success');
+              signInBtn.disabled = false;
+              if (btnText) btnText.textContent = 'Sign In';
+            }
+          }, 1200);
         }
       } catch(err){
         if (signInBtn){
