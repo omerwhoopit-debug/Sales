@@ -427,10 +427,11 @@ function replayChartAnimation(key){
     chart.reset();
     chart.update();
   }catch(e){ /* chart may not be ready yet */ }
-}
-
+let _observersInitialized = false;
 function setupScrollAnimatedCharts(){
+  if(_observersInitialized) return;
   if(!('IntersectionObserver' in window)) return;
+  _observersInitialized = true;
   const targets = [
     { selector: '#chartDailyTrend', key: 'daily' },
     { selector: '#chartCollegeDonut', key: 'college' },
@@ -653,8 +654,11 @@ function setupNotifications(){
   });
 }
 
+let _filtersInitialized = false;
 function initFilters(){
   let { monthKeys, monthSelect } = populateFilterOptions();
+  if(_filtersInitialized) return;
+  _filtersInitialized = true;
 
   ['fDateFrom','fDateTo','fCollege','fCourse','fLead','fAgent'].forEach(id=>{
     document.getElementById(id).addEventListener('change', ()=>{
@@ -3416,6 +3420,9 @@ const AuthService = (function(){
 
     document.body.classList.remove('logged-in', 'role-admin', 'role-user');
     enforceRouteGuard();
+    if(typeof initLoginGreetingTyping === 'function'){
+      initLoginGreetingTyping();
+    }
 
     const errorBanner = document.getElementById('errorBanner');
     const errorText = document.getElementById('errorText');
@@ -3822,6 +3829,73 @@ function setupUserManagement(){
 }
 
 /* ==========================================================================
+   DYNAMIC SALES AGENT GREETINGS & TYPEWRITER ANIMATION
+   ========================================================================== */
+const AGENT_GREETINGS = [
+  { text: "Let's make today count!", sub: "You're online" },
+  { text: "Ready to close some deals?", sub: "Dashboard is live" },
+  { text: "Welcome back, Champion!", sub: "Targets in sight" },
+  { text: "New sales numbers just landed!", sub: "Sync active" },
+  { text: "Big numbers start with a single lead.", sub: "Let's crush it" },
+  { text: "Coffee brewed, pipeline loaded.", sub: "Ready for action" },
+  { text: "Your leaderboard is waiting for you!", sub: "Live stats ready" },
+  { text: "Time to turn conversations into conversions.", sub: "UKPDA & ILC" },
+  { text: "Every call is an opportunity today.", sub: "Performance mode" },
+  { text: "Stay focused, stay driven!", sub: "System secured" }
+];
+
+function initLoginGreetingTyping(){
+  const textEl = document.getElementById('loginGreetingText');
+  const subEl = document.getElementById('loginGreetingSub');
+  const bubbleEl = document.getElementById('loginBubble');
+  if(!textEl) return;
+
+  const total = AGENT_GREETINGS.length;
+  let lastIdx = -1;
+  try {
+    const stored = sessionStorage.getItem('last_login_greeting_idx');
+    if(stored !== null) lastIdx = parseInt(stored, 10);
+  } catch(e){}
+
+  const candidates = [];
+  for(let i = 0; i < total; i++){
+    if(i !== lastIdx) candidates.push(i);
+  }
+  const chosenIdx = candidates.length > 0 
+    ? candidates[Math.floor(Math.random() * candidates.length)]
+    : Math.floor(Math.random() * total);
+
+  try {
+    sessionStorage.setItem('last_login_greeting_idx', String(chosenIdx));
+  } catch(e){}
+
+  const greeting = AGENT_GREETINGS[chosenIdx];
+  textEl.textContent = '';
+  if(subEl){
+    subEl.textContent = greeting.sub;
+    subEl.classList.remove('show');
+  }
+
+  let charIdx = 0;
+  const fullText = greeting.text;
+
+  function typeNextChar(){
+    if(charIdx < fullText.length){
+      textEl.textContent += fullText.charAt(charIdx);
+      charIdx++;
+      setTimeout(typeNextChar, 28);
+    } else {
+      if(subEl){
+        setTimeout(() => subEl.classList.add('show'), 160);
+      }
+    }
+  }
+
+  // Smooth delayed entrance
+  setTimeout(typeNextChar, 450);
+}
+
+/* ==========================================================================
    SETUP AUTH & LOGIN FORM
    ========================================================================== */
 function setupAuth(){
@@ -3952,11 +4026,8 @@ function setupAuth(){
     });
   }
 
-  if (charBubble){
-    charBubble.style.opacity = '0';
-    charBubble.style.transition = 'opacity 0.5s ease';
-    setTimeout(function(){ charBubble.style.opacity = '1'; }, 900);
-  }
+  // Initialize dynamic sales agent typewriter greeting
+  initLoginGreetingTyping();
 
   // Strict URL guard listeners to prevent bypass
   window.addEventListener('hashchange', AuthService.enforceRouteGuard);

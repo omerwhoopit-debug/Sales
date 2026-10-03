@@ -30,65 +30,37 @@
 <div id="loginOverlay">
   <div class="login-scene">
 
-    <!-- Animated support-agent character -->
-    <div class="support-character">
-      <svg class="char-figure" viewBox="0 0 190 240" xmlns="http://www.w3.org/2000/svg">
-        <defs>
-          <linearGradient id="skinGrad" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stop-color="#F2B98A"/>
-            <stop offset="100%" stop-color="#E4A374"/>
-          </linearGradient>
-          <linearGradient id="shirtGrad" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stop-color="#8B5CF6"/>
-            <stop offset="100%" stop-color="#6D3FD1"/>
-          </linearGradient>
-        </defs>
+    <!-- Executive Showcase & Dynamic Sales Agent Hero -->
+    <div class="login-showcase">
+      <div class="showcase-badge">✨ UKPDA &amp; ILC ENTERPRISE · SALES INTELLIGENCE</div>
+      <h1 class="showcase-title">Real-Time Sales &amp; Revenue Analytics</h1>
+      <p class="showcase-desc">Live performance tracking for admissions, qualifications, and certified medical programs.</p>
 
-        <!-- legs -->
-        <rect x="70" y="168" width="18" height="46" rx="8" fill="#2A2640"/>
-        <rect x="100" y="168" width="18" height="46" rx="8" fill="#2A2640"/>
-        <rect x="66" y="206" width="26" height="12" rx="6" fill="#14121F"/>
-        <rect x="96" y="206" width="26" height="12" rx="6" fill="#14121F"/>
+      <div class="agent-showcase-box">
+        <!-- Dynamic interactive typewriter greeting bubble -->
+        <div class="char-bubble" id="loginBubble">
+          <span id="loginGreetingText" class="typing-text">Connecting to sales pipeline…</span><span class="typing-cursor">|</span>
+          <span id="loginGreetingSub" class="greeting-badge">Live</span>
+        </div>
 
-        <!-- torso -->
-        <path d="M60 108 Q95 92 128 108 L134 176 Q95 190 54 176 Z" fill="url(#shirtGrad)"/>
-        <circle cx="95" cy="150" r="5" fill="#7C3AED" opacity="0.5"/>
+        <!-- Sales agent portrait with glowing gradient ring and live presence chip -->
+        <div class="agent-portrait-box">
+          <div class="agent-portrait-wrap">
+            <img src="Profile Dp.png" alt="Sales Specialist" class="agent-portrait-img">
+          </div>
+          <div class="agent-presence-chip">
+            <span class="presence-dot"></span>
+            <span>Online &amp; Ready · Sales Support</span>
+          </div>
+        </div>
+      </div>
 
-        <!-- static arm -->
-        <path d="M62 112 Q44 128 48 156 Q50 168 60 170" fill="none" stroke="url(#shirtGrad)" stroke-width="16" stroke-linecap="round"/>
-
-        <!-- waving arm (animated group) -->
-        <g class="char-wave-arm">
-          <path d="M124 110 Q146 96 150 70 Q152 58 144 50" fill="none" stroke="url(#shirtGrad)" stroke-width="16" stroke-linecap="round"/>
-          <circle cx="144" cy="50" r="10" fill="url(#skinGrad)"/>
-        </g>
-
-        <!-- neck -->
-        <rect x="86" y="90" width="18" height="18" rx="6" fill="url(#skinGrad)"/>
-
-        <!-- head -->
-        <circle cx="95" cy="66" r="34" fill="url(#skinGrad)"/>
-
-        <!-- hair -->
-        <path d="M62 58 Q60 26 95 24 Q132 26 129 58 Q124 40 95 40 Q66 40 62 58Z" fill="#2A2130"/>
-
-        <!-- face -->
-        <circle cx="83" cy="66" r="3.4" fill="#2A2130"/>
-        <circle cx="107" cy="66" r="3.4" fill="#2A2130"/>
-        <path d="M84 80 Q95 88 106 80" fill="none" stroke="#2A2130" stroke-width="3" stroke-linecap="round"/>
-
-        <!-- headset band -->
-        <path d="M64 60 Q95 22 126 60" fill="none" stroke="#1A1826" stroke-width="6" stroke-linecap="round"/>
-        <rect x="58" y="56" width="14" height="22" rx="7" fill="#1A1826"/>
-        <rect x="118" y="56" width="14" height="22" rx="7" fill="#1A1826"/>
-
-        <!-- mic boom -->
-        <path d="M70 74 Q78 92 96 96" fill="none" stroke="#1A1826" stroke-width="4" stroke-linecap="round"/>
-        <circle class="char-mic-light" cx="97" cy="96" r="4.5" fill="#2DD4BF"/>
-      </svg>
-
-      <div class="char-shadow"></div>
-      <div class="char-bubble">Hi! Need a hand? <span>We're online</span></div>
+      <!-- Feature pills -->
+      <div class="showcase-features">
+        <div class="feat-pill"><span class="feat-icon">⚡</span><span>Live Google Sheet Sync</span></div>
+        <div class="feat-pill"><span class="feat-icon">🎯</span><span>CPD &amp; Phlebotomy Tracking</span></div>
+        <div class="feat-pill"><span class="feat-icon">🔒</span><span>5-Hour Protected Session</span></div>
+      </div>
     </div>
 
     <!-- Glass Card -->

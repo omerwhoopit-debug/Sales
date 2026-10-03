@@ -91,9 +91,8 @@ if "api" in st.query_params and st.query_params.get("api") == "delete":
     del_type = st.query_params.get("type", "").lower()
     del_id = st.query_params.get("id", "")
     del_name = st.query_params.get("name", "")
-    auth_token = st.query_params.get("token", "")
-
-    if auth_token != AUTH_PASSWORD and auth_token != "admin":
+    expected_token = AUTH_PASSWORD if (AUTH_PASSWORD and AUTH_PASSWORD != "admin") else (SECURITY_TOKEN or AUTH_PASSWORD)
+    if not auth_token or auth_token != expected_token:
         st.json({"success": False, "error": "Unauthorized: Invalid or missing token"})
         st.stop()
 
@@ -288,23 +287,18 @@ def build_bundled_dashboard():
         html = html.replace('<link rel="stylesheet" href="style.css">', f'<style>\n{css_content}\n</style>')
 
     # 2. Inline Branding & High-Resolution Favicons as Base64
-    for fav_name in ["logo.png", "favicon.png", "favicon-16.png", "favicon-32.png", "favicon-48.png", "favicon-128.png"]:
+    for fav_name in ["logo.png", "Profile Dp.png", "favicon.png", "favicon-16.png", "favicon-32.png", "favicon-48.png", "favicon-128.png"]:
         if os.path.exists(fav_name):
             with open(fav_name, "rb") as f:
                 b64_data = base64.b64encode(f.read()).decode("utf-8")
             html = html.replace(f'href="{fav_name}"', f'href="data:image/png;base64,{b64_data}"')
             html = html.replace(f'src="{fav_name}"', f'src="data:image/png;base64,{b64_data}"')
 
-    # 3. Fetch server-cached data to eliminate client cold starts
-    cached_data = fetch_cached_payload(SHEET_API_URL, SECURITY_TOKEN)
-    initial_data_json = json.dumps(cached_data) if cached_data else "null"
-
+    # 3. Secure runtime environment injection (Zero raw data or credential leaks before auth)
     injection_script = f"""
     <script>
-        window.INITIAL_DATA = {initial_data_json};
+        window.INITIAL_DATA = null;
         window.SHEET_API_URL = "{SHEET_API_URL}";
-        window.AUTH_USERNAME = "{AUTH_USERNAME}";
-        window.AUTH_PASSWORD = "{AUTH_PASSWORD}";
         window.SUPABASE_URL = "{SUPABASE_URL}";
         window.SUPABASE_ANON_KEY = "{SUPABASE_ANON_KEY}";
     </script>
