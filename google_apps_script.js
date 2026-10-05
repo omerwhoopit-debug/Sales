@@ -223,16 +223,12 @@ function doGet(e) {
           leadVal = "Direct Sales";
         }
 
-        var maskedPhone = phoneStr.length > 5
-          ? phoneStr.slice(0, 3) + '****' + phoneStr.slice(-3)
-          : (phoneStr ? '****' : '');
-
         allRows.push({
           sr: srCounter++,
           date: dateStr,
           order: orderStr,
           name: nameStr,
-          phone: maskedPhone,
+          phone: phoneStr,
           lead: leadVal,
           agent: agentVal,
           course: courseStr,
