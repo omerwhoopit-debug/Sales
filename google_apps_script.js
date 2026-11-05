@@ -193,28 +193,20 @@ function doGet(e) {
         }
       }
 
-      // Main Sales Table encompasses columns up to the first side table
-      var mainTableEnd = fullHeader.length;
-      if (cpdSalesIdx >= 0) {
-        var cpdStart = cpdSalesIdx - 1; // date is 1 column before cpd sales
-        if (cpdStart > 0 && cpdStart < mainTableEnd) mainTableEnd = cpdStart;
-      }
-      if (phlebSalesIdx >= 0) {
-        var phlebStart = phlebSalesIdx - 2; // date is 2 columns before phlebotomy sales
-        if (phlebStart > 0 && phlebStart < mainTableEnd) mainTableEnd = phlebStart;
-      }
+      // Find Total Amount column across the full header
+      // (Exclude bare "full fee" so it never mistakenly matches column J "full fee/ installments")
+      var totalAmountCol = findCol(fullHeader, [
+        "total amount", "total course fee", "total fee", "course fee", "total payable", "total amount payable", "full course fee"
+      ]);
 
-      var mainHeader = fullHeader.slice(0, mainTableEnd);
-
-      // Find Total Amount column (full course fee)
-      var totalAmountCol = findCol(mainHeader, ["total amount", "total course fee", "total fee", "course fee", "total payable", "full fee"]);
-
-      // Find Initial Deposit / Amount column (ensure no collision with totalAmountCol)
-      var depositCol = findCol(mainHeader, ["initial deposit", "initial deposit paid", "deposit paid", "deposit", "initial amount", "amount paid"]);
+      // Find Initial Deposit / Initial Amount column across the full header
+      var depositCol = findCol(fullHeader, [
+        "initial amount", "initial deposit", "initial deposit paid", "deposit paid", "deposit", "amount paid", "initial fee"
+      ]);
       if (depositCol === -1) {
-        for (var mc = 0; mc < mainHeader.length; mc++) {
+        for (var mc = 0; mc < fullHeader.length; mc++) {
           if (mc === totalAmountCol) continue;
-          if (mainHeader[mc] === "amount" || (mainHeader[mc].indexOf("amount") !== -1 && mainHeader[mc].indexOf("total") === -1)) {
+          if (fullHeader[mc] === "amount" || (fullHeader[mc].indexOf("amount") !== -1 && fullHeader[mc].indexOf("total") === -1)) {
             depositCol = mc;
             break;
           }
@@ -223,36 +215,34 @@ function doGet(e) {
 
       // Main Sales Table
       var col = {
-        date:        findCol(mainHeader, ["date"]),
-        order:       findCol(mainHeader, ["order no", "order"]),
-        name:        findCol(mainHeader, ["name"]),
-        phone:       findCol(mainHeader, ["phone"]),
-        lead:        findCol(mainHeader, ["lead/inquiries", "lead"]),
-        agent:       findCol(mainHeader, ["agent name", "agent"]),
-        course:      findCol(mainHeader, ["course name", "course"]),
-        type:        findCol(mainHeader, ["full fee/ installments", "full fee/installments", "full fee", "installments", "type"]),
-        college:     findCol(mainHeader, ["college name", "college"]),
+        date:        findCol(fullHeader, ["date"]),
+        order:       findCol(fullHeader, ["order no", "order"]),
+        name:        findCol(fullHeader, ["name"]),
+        phone:       findCol(fullHeader, ["phone"]),
+        lead:        findCol(fullHeader, ["lead/inquiries", "lead"]),
+        agent:       findCol(fullHeader, ["agent name", "agent"]),
+        course:      findCol(fullHeader, ["course name", "course"]),
+        type:        findCol(fullHeader, ["full fee/ installments", "full fee/installments", "full fee", "installments", "type"]),
+        college:     findCol(fullHeader, ["college name", "college"]),
         amount:      depositCol,
         totalAmount: totalAmountCol
       };
 
       for (var i = 1; i < data.length; i++) {
         var row = data[i];
-        var slice = row.slice(0, mainTableEnd);
-        var hasContent = slice.some(function (v) { return v !== "" && v !== null && v !== undefined; });
-        if (!hasContent) continue;
-
         var rawDate = col.date >= 0 ? row[col.date] : "";
-        var dateStr = parseRowDate(rawDate, tabMonthIdx, year);
         var orderStr = col.order >= 0 ? String(row[col.order] || "").trim() : "";
         var nameStr = col.name >= 0 ? String(row[col.name] || "").trim() : "";
+        if (!rawDate && !orderStr && !nameStr) continue;
+
+        var dateStr = parseRowDate(rawDate, tabMonthIdx, year);
         var phoneStr = col.phone >= 0 ? String(row[col.phone] || "").trim() : "";
         var courseStr = col.course >= 0 ? String(row[col.course] || "").trim() : "";
         var collegeStr = col.college >= 0 ? String(row[col.college] || "").trim() : "";
         var typeVal = col.type >= 0 ? String(row[col.type] || "").trim() : "";
         var amt = col.amount >= 0 ? parseAmount(row[col.amount]) : 0;
         var totalAmt = col.totalAmount >= 0 ? parseAmount(row[col.totalAmount]) : 0;
-        var remAmt = totalAmt > 0 ? Math.max(0, totalAmt - amt) : 0;
+        var remAmt = totalAmt > amt ? (totalAmt - amt) : 0;
         var leadVal = col.lead >= 0 ? String(row[col.lead] || "").trim() : "";
         var agentVal = col.agent >= 0 ? String(row[col.agent] || "").trim() : "";
 

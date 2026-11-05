@@ -36,12 +36,12 @@ function sanitizeSales(rows) {
 
     // Remaining Amount = Total Amount - Initial Deposit (in GBP £)
     let remainingAmount = 0;
-    if (r.remainingAmount !== undefined) {
+    if (totalAmount > 0 && totalAmount >= initialDeposit) {
+      remainingAmount = totalAmount - initialDeposit;
+    } else if (r.remainingAmount !== undefined) {
       remainingAmount = parseAmount(r.remainingAmount);
     } else if (r.remaining_amount !== undefined) {
       remainingAmount = parseAmount(r.remaining_amount);
-    } else if (totalAmount > 0) {
-      remainingAmount = Math.max(0, totalAmount - initialDeposit);
     }
 
     clean.push({
