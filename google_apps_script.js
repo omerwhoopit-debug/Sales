@@ -179,25 +179,66 @@ function doGet(e) {
       if (!data || data.length < 2) return;
 
       var fullHeader = data[0].map(function (h) { return String(h || "").trim().toLowerCase(); });
-      var header11 = fullHeader.slice(0, 11);
+
+      // Locate side tables anywhere in header
+      var cpdSalesIdx = -1;
+      for (var ci = 0; ci < fullHeader.length; ci++) {
+        if (fullHeader[ci].indexOf("cpd sales") !== -1) { cpdSalesIdx = ci; break; }
+      }
+
+      var phlebSalesIdx = -1;
+      for (var pi = 0; pi < fullHeader.length; pi++) {
+        if (fullHeader[pi].indexOf("phlebotomy sales") !== -1 || fullHeader[pi].indexOf("phelebotomy sales") !== -1) {
+          phlebSalesIdx = pi; break;
+        }
+      }
+
+      // Main Sales Table encompasses columns up to the first side table
+      var mainTableEnd = fullHeader.length;
+      if (cpdSalesIdx >= 0) {
+        var cpdStart = cpdSalesIdx - 1; // date is 1 column before cpd sales
+        if (cpdStart > 0 && cpdStart < mainTableEnd) mainTableEnd = cpdStart;
+      }
+      if (phlebSalesIdx >= 0) {
+        var phlebStart = phlebSalesIdx - 2; // date is 2 columns before phlebotomy sales
+        if (phlebStart > 0 && phlebStart < mainTableEnd) mainTableEnd = phlebStart;
+      }
+
+      var mainHeader = fullHeader.slice(0, mainTableEnd);
+
+      // Find Total Amount column (full course fee)
+      var totalAmountCol = findCol(mainHeader, ["total amount", "total course fee", "total fee", "course fee", "total payable", "full fee"]);
+
+      // Find Initial Deposit / Amount column (ensure no collision with totalAmountCol)
+      var depositCol = findCol(mainHeader, ["initial deposit", "initial deposit paid", "deposit paid", "deposit", "initial amount", "amount paid"]);
+      if (depositCol === -1) {
+        for (var mc = 0; mc < mainHeader.length; mc++) {
+          if (mc === totalAmountCol) continue;
+          if (mainHeader[mc] === "amount" || (mainHeader[mc].indexOf("amount") !== -1 && mainHeader[mc].indexOf("total") === -1)) {
+            depositCol = mc;
+            break;
+          }
+        }
+      }
 
       // Main Sales Table
       var col = {
-        date:    findCol(header11, ["date"]),
-        order:   findCol(header11, ["order no", "order"]),
-        name:    findCol(header11, ["name"]),
-        phone:   findCol(header11, ["phone"]),
-        lead:    findCol(header11, ["lead/inquiries", "lead"]),
-        agent:   findCol(header11, ["agent name", "agent"]),
-        course:  findCol(header11, ["course name", "course"]),
-        type:    findCol(header11, ["full fee/ installments", "full fee/installments", "full fee", "installments", "type"]),
-        college: findCol(header11, ["college name", "college"]),
-        amount:  findCol(header11, ["amount"])
+        date:        findCol(mainHeader, ["date"]),
+        order:       findCol(mainHeader, ["order no", "order"]),
+        name:        findCol(mainHeader, ["name"]),
+        phone:       findCol(mainHeader, ["phone"]),
+        lead:        findCol(mainHeader, ["lead/inquiries", "lead"]),
+        agent:       findCol(mainHeader, ["agent name", "agent"]),
+        course:      findCol(mainHeader, ["course name", "course"]),
+        type:        findCol(mainHeader, ["full fee/ installments", "full fee/installments", "full fee", "installments", "type"]),
+        college:     findCol(mainHeader, ["college name", "college"]),
+        amount:      depositCol,
+        totalAmount: totalAmountCol
       };
- 
+
       for (var i = 1; i < data.length; i++) {
         var row = data[i];
-        var slice = row.slice(0, 11);
+        var slice = row.slice(0, mainTableEnd);
         var hasContent = slice.some(function (v) { return v !== "" && v !== null && v !== undefined; });
         if (!hasContent) continue;
 
@@ -210,6 +251,8 @@ function doGet(e) {
         var collegeStr = col.college >= 0 ? String(row[col.college] || "").trim() : "";
         var typeVal = col.type >= 0 ? String(row[col.type] || "").trim() : "";
         var amt = col.amount >= 0 ? parseAmount(row[col.amount]) : 0;
+        var totalAmt = col.totalAmount >= 0 ? parseAmount(row[col.totalAmount]) : 0;
+        var remAmt = totalAmt > 0 ? Math.max(0, totalAmt - amt) : 0;
         var leadVal = col.lead >= 0 ? String(row[col.lead] || "").trim() : "";
         var agentVal = col.agent >= 0 ? String(row[col.agent] || "").trim() : "";
 
@@ -235,15 +278,14 @@ function doGet(e) {
           college: collegeStr || "Unknown",
           type: typeVal,
           fp: /full/i.test(typeVal),
-          amount: amt
+          amount: amt,
+          initialDeposit: amt,
+          totalAmount: totalAmt,
+          remainingAmount: remAmt
         });
       }
 
       // CPD Side Table
-      var cpdSalesIdx = -1;
-      for (var ci = 11; ci < fullHeader.length; ci++) {
-        if (fullHeader[ci].indexOf("cpd sales") !== -1) { cpdSalesIdx = ci; break; }
-      }
       if (cpdSalesIdx >= 0) {
         var cpdDateIdx = cpdSalesIdx - 1;
         var cpdCollegeIdx = cpdSalesIdx + 1;
@@ -269,12 +311,6 @@ function doGet(e) {
       }
 
       // Phlebotomy Side Table
-      var phlebSalesIdx = -1;
-      for (var pi = 11; pi < fullHeader.length; pi++) {
-        if (fullHeader[pi].indexOf("phlebotomy sales") !== -1 || fullHeader[pi].indexOf("phelebotomy sales") !== -1) {
-          phlebSalesIdx = pi; break;
-        }
-      }
       if (phlebSalesIdx >= 0) {
         var phlebOrderIdx = phlebSalesIdx - 1;
         var phlebDateIdx = phlebSalesIdx - 2;

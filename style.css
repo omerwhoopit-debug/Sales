@@ -378,7 +378,7 @@ body.light-mode .sidebar-floating-tooltip::before {
 .reset-chip:hover{color:var(--ink);border-color:var(--violet);}
 
 /* KPI row */
-.kpi-row{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-bottom:20px;}
+.kpi-row{display:grid;grid-template-columns:repeat(auto-fit, minmax(210px, 1fr));gap:16px;margin-bottom:20px;}
 .kpi-card{
   background:var(--card);border:1px solid var(--card-border);border-radius:var(--radius);
   padding:18px;position:relative;overflow:hidden;transition:transform .2s ease, box-shadow .2s ease;
@@ -681,7 +681,7 @@ footer{text-align:center;color:var(--ink-3);font-size:11px;padding:30px 0 10px;}
   .shell{ display:block; }
   .main{ padding:0; }
   .kpi-card, .panel, .summary-card{ box-shadow:none !important; border:1px solid #E2DCF2 !important; break-inside:avoid; }
-  .kpi-row{ grid-template-columns:repeat(4,1fr) !important; }
+  .kpi-row{ grid-template-columns:repeat(auto-fit, minmax(180px, 1fr)) !important; }
   .top-grid, .main-rail-grid{ display:block !important; }
   .right-rail{ margin-top:16px; }
   .hero-banner{ background:#F6F4FB !important; border:1px solid #E2DCF2 !important; }

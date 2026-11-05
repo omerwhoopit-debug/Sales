@@ -15,13 +15,45 @@ function sanitizeSales(rows) {
     if (!r) continue;
     const course = (r.course || '').trim();
     const college = (r.college || '').trim();
+
+    // Initial deposit already received from learner at enrolment
+    const initialDeposit = parseAmount(
+      r.initialDeposit !== undefined ? r.initialDeposit :
+      (r.initial_deposit !== undefined ? r.initial_deposit :
+      (r.deposit !== undefined ? r.deposit : r.amount))
+    );
+
+    // Full course fee from "Total Amount" column
+    const totalAmount = parseAmount(
+      r.totalAmount !== undefined ? r.totalAmount :
+      (r.total_amount !== undefined ? r.total_amount :
+      (r.totalFee !== undefined ? r.totalFee :
+      (r.total_fee !== undefined ? r.total_fee :
+      (r.totalCourseFee !== undefined ? r.totalCourseFee :
+      (r['total amount'] !== undefined ? r['total amount'] :
+      (r['Total Amount'] !== undefined ? r['Total Amount'] : 0))))))
+    );
+
+    // Remaining Amount = Total Amount - Initial Deposit (in GBP £)
+    let remainingAmount = 0;
+    if (r.remainingAmount !== undefined) {
+      remainingAmount = parseAmount(r.remainingAmount);
+    } else if (r.remaining_amount !== undefined) {
+      remainingAmount = parseAmount(r.remaining_amount);
+    } else if (totalAmount > 0) {
+      remainingAmount = Math.max(0, totalAmount - initialDeposit);
+    }
+
     clean.push({
       ...r,
       course: course || 'Qualification (General)',
       lead: r.lead && r.lead.trim() ? r.lead.trim() : 'Direct Sales',
       agent: r.agent && r.agent.trim() ? r.agent.trim() : 'Direct Sale',
       college: college || 'Unknown',
-      amount: parseAmount(r.amount)
+      amount: initialDeposit, // Keep existing revenue KPI strictly as initial deposit received
+      initialDeposit: initialDeposit,
+      totalAmount: totalAmount,
+      remainingAmount: remainingAmount
     });
   }
   return clean;
@@ -62,13 +94,15 @@ function computeDataFingerprint(sales, cpd, phleb){
   const pLen = pList.length;
 
   let salesPence = 0;
+  let remainingPence = 0;
   const midIdx = Math.floor(sLen / 2);
-  const sFirst = sLen && sList[0] ? String(sList[0].order || '') + String(sList[0].agent || '') + String(sList[0].amount || '') : '';
-  const sMid   = sLen && sList[midIdx] ? String(sList[midIdx].order || '') + String(sList[midIdx].agent || '') + String(sList[midIdx].amount || '') : '';
-  const sLast  = sLen && sList[sLen-1] ? String(sList[sLen-1].order || '') + String(sList[sLen-1].agent || '') + String(sList[sLen-1].amount || '') : '';
+  const sFirst = sLen && sList[0] ? String(sList[0].order || '') + String(sList[0].agent || '') + String(sList[0].amount || '') + String(sList[0].totalAmount || '') : '';
+  const sMid   = sLen && sList[midIdx] ? String(sList[midIdx].order || '') + String(sList[midIdx].agent || '') + String(sList[midIdx].amount || '') + String(sList[midIdx].totalAmount || '') : '';
+  const sLast  = sLen && sList[sLen-1] ? String(sList[sLen-1].order || '') + String(sList[sLen-1].agent || '') + String(sList[sLen-1].amount || '') + String(sList[sLen-1].totalAmount || '') : '';
 
   for(let i = 0; i < sLen; i++){
     salesPence += Math.round(parseAmount(sList[i].amount) * 100);
+    remainingPence += Math.round(parseAmount(sList[i].remainingAmount || 0) * 100);
   }
 
   let cpdTotal = 0;
@@ -81,7 +115,7 @@ function computeDataFingerprint(sales, cpd, phleb){
     phlebTotal += (Number(pList[i].total) || (Number(pList[i].p1)||0) + (Number(pList[i].p2)||0));
   }
 
-  return `${sLen}_${sFirst}_${sMid}_${sLast}_${salesPence}_${cLen}_${cpdTotal}_${pLen}_${phlebTotal}`;
+  return `${sLen}_${sFirst}_${sMid}_${sLast}_${salesPence}_${remainingPence}_${cLen}_${cpdTotal}_${pLen}_${phlebTotal}`;
 }
 
 async function loadData(isSilent = false){
@@ -231,7 +265,9 @@ const ICONS = {
   phleb:'<svg width="18" height="18" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="2"/><circle cx="12" cy="12" r="4" stroke="currentColor" stroke-width="2"/></svg>',
   book:'<svg width="17" height="17" viewBox="0 0 24 24" fill="none"><path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H20v15H6.5A2.5 2.5 0 0 0 4 20.5v-15Z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><path d="M4 20.5A2.5 2.5 0 0 1 6.5 18H20" stroke="currentColor" stroke-width="2"/></svg>',
   target:'<svg width="17" height="17" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="2"/><circle cx="12" cy="12" r="5" stroke="currentColor" stroke-width="2"/><circle cx="12" cy="12" r="1.4" fill="currentColor"/></svg>',
-  sales:'<svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M6 7h12l1 13a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1L6 7Z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><path d="M9 7a3 3 0 0 1 6 0" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><path d="M9.5 11.5l2 2 3-3.5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>'
+  sales:'<svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M6 7h12l1 13a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1L6 7Z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><path d="M9 7a3 3 0 0 1 6 0" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><path d="M9.5 11.5l2 2 3-3.5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+  instalment:'<svg width="18" height="18" viewBox="0 0 24 24" fill="none"><rect x="3" y="4" width="18" height="16" rx="2" stroke="currentColor" stroke-width="2"/><path d="M7 8h10M7 12h6M7 16h8" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><circle cx="17" cy="12" r="1.5" fill="currentColor"/></svg>',
+  combined:'<svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H20v20H6.5a2.5 2.5 0 0 1-2.5-2.5Z" stroke="currentColor" stroke-width="2"/><circle cx="12" cy="10" r="3.5" stroke="currentColor" stroke-width="1.8"/><path d="M12 6.5v7M8.5 10h7" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>'
 };
 
 const COLORS = {
@@ -787,6 +823,9 @@ function computeStats(rawData){
   // Qualification revenue & sales exclude Phlebotomy (which has its own dedicated KPI card and breakdown section)
   const data = rawData.filter(r=> !r.course.toLowerCase().includes('phlebotomy'));
   const totalRevenue = sum(data, r=>r.amount);
+  const totalRemaining = sum(data, r=>r.remainingAmount || 0);
+  const totalFullFee = sum(data, r=>(r.totalAmount > 0 ? r.totalAmount : r.amount));
+  const instalmentCount = data.filter(r=>(r.remainingAmount || 0) > 0).length;
   const totalOrders = data.length;
   const totalStudents = totalOrders;
 
@@ -814,10 +853,14 @@ function computeStats(rawData){
 
   const byDate = groupBy(data, r=>r.date);
   const dailyAgg = [...byDate.entries()].map(([date, rows])=>({
-    date, revenue: sum(rows,r=>r.amount), orders: rows.length, students: rows.length
+    date,
+    revenue: sum(rows,r=>r.amount),
+    remaining: sum(rows, r=>r.remainingAmount || 0),
+    orders: rows.length,
+    students: rows.length
   })).sort((a,b)=>a.date.localeCompare(b.date));
 
-  return { totalRevenue, totalOrders, totalStudents, courseAgg, collegeAgg, leadAgg, agentAgg, dailyAgg };
+  return { totalRevenue, totalRemaining, totalFullFee, instalmentCount, totalOrders, totalStudents, courseAgg, collegeAgg, leadAgg, agentAgg, dailyAgg };
 }
 
 function computeCpdStats(fromDate, toDate, college){
@@ -890,6 +933,7 @@ function renderTopKpis(stats, cpd, ph, revChange){
   const cpdOn = agent ? agentSellsCpd(agent) : true;
 
   const trendVals = stats.dailyAgg.map(d=>d.revenue);
+  const remTrendVals = stats.dailyAgg.map(d=>d.remaining);
   const cpdTrendVals = cpd.dailyAgg.map(d=>d.total);
   const phTrendVals = ph.dailyAgg.map(d=>d.total);
   const phRevenueTrendVals = ph.dailyAgg.map(d=>d.revenue);
@@ -905,15 +949,39 @@ function renderTopKpis(stats, cpd, ph, revChange){
   if(agent){
     // AGENT FILTER ACTIVE:
     // Rule 1: Never show CPD Sales on top KPI card when an agent is selected.
-    // Rule 2: If agent has both Qualification AND Phlebotomy checked:
-    // Show: Total Qualification Revenue, Total Qualification Sales, Total Phlebotomy Sales, Total Phlebotomy Revenue.
+    // Rule 2: If agent sells BOTH Qualification AND Phlebotomy courses:
+    // Show: Total Combined Revenue, Total Qualification Revenue, Pending Instalment Amount,
+    // Total Qualification Sales, Total Phlebotomy Revenue, Total Phlebotomy Sales.
     if(qualOn && phlebOn){
+      const combinedTotalRev = stats.totalRevenue + ph.totalRevenue;
+      const combinedDateMap = new Map();
+      stats.dailyAgg.forEach(d => {
+        combinedDateMap.set(d.date, (combinedDateMap.get(d.date) || 0) + d.revenue);
+      });
+      ph.dailyAgg.forEach(d => {
+        combinedDateMap.set(d.date, (combinedDateMap.get(d.date) || 0) + (d.revenue || 0));
+      });
+      const combinedDates = [...combinedDateMap.keys()].sort();
+      const combinedTrendVals = combinedDates.map(k => combinedDateMap.get(k));
+
       grid.innerHTML =
+        '<div class="kpi-card fade-in"><div class="glow" style="background:'+COLORS.ilcBlue+';"></div>'+
+          '<div class="kpi-top-row"><div class="kpi-icon" style="background:rgba(56,189,248,.18);color:'+COLORS.ilcBlue+';">'+ICONS.combined+'</div><span class="kpi-trend up" style="background:rgba(56,189,248,.15);color:'+COLORS.ilcBlue+';">Combined</span></div>'+
+          '<div class="kpi-label">Total Combined Revenue</div>'+
+          '<div class="kpi-value num"><span style="font-size:16px;color:var(--ink-2);">£</span><span id="cntTopCombinedRevenue">0</span></div>'+
+          '<canvas class="kpi-spark" id="sparkTopCombinedRevenue"></canvas>'+
+        '</div>'+
         '<div class="kpi-card fade-in"><div class="glow" style="background:'+COLORS.violet+';"></div>'+
           '<div class="kpi-top-row"><div class="kpi-icon" style="background:rgba(139,92,246,.18);color:'+COLORS.violet2+';">'+ICONS.revenue+'</div>'+trendBadge(revChange)+'</div>'+
           '<div class="kpi-label">Total Qualification Revenue</div>'+
           '<div class="kpi-value num"><span style="font-size:16px;color:var(--ink-2);">£</span><span id="cntTopRevenue">0</span></div>'+
           '<canvas class="kpi-spark" id="sparkTopRevenue"></canvas>'+
+        '</div>'+
+        '<div class="kpi-card fade-in"><div class="glow" style="background:'+COLORS.gold+';"></div>'+
+          '<div class="kpi-top-row"><div class="kpi-icon" style="background:rgba(244,196,48,.18);color:'+COLORS.gold2+';">'+ICONS.instalment+'</div><span class="kpi-trend up" style="background:rgba(244,196,48,.15);color:'+COLORS.gold2+';">Pending</span></div>'+
+          '<div class="kpi-label">Pending Instalment Amount</div>'+
+          '<div class="kpi-value num"><span style="font-size:16px;color:var(--ink-2);">£</span><span id="cntTopRemaining">0</span></div>'+
+          '<canvas class="kpi-spark" id="sparkTopRemaining"></canvas>'+
         '</div>'+
         '<div class="kpi-card fade-in"><div class="glow" style="background:'+COLORS.teal+';"></div>'+
           '<div class="kpi-top-row"><div class="kpi-icon" style="background:rgba(45,212,191,.18);color:'+COLORS.teal+';">'+ICONS.sales+'</div></div>'+
@@ -922,25 +990,30 @@ function renderTopKpis(stats, cpd, ph, revChange){
           '<div style="font-size:11px;color:var(--ink-2);margin-top:4px;">Across '+fmtNum(stats.dailyAgg.length)+' active days</div>'+
         '</div>'+
         '<div class="kpi-card fade-in"><div class="glow" style="background:'+COLORS.pink+';"></div>'+
-          '<div class="kpi-top-row"><div class="kpi-icon" style="background:rgba(236,72,153,.18);color:'+COLORS.pink+';">'+ICONS.phleb+'</div><span class="kpi-trend up">P1 '+fmtNum(ph.totalP1)+' · P2 '+fmtNum(ph.totalP2)+'</span></div>'+
-          '<div class="kpi-label">Total Phlebotomy Sales</div>'+
-          '<div class="kpi-value num" id="cntTopPhleb">0</div>'+
-          '<canvas class="kpi-spark" id="sparkTopPhleb"></canvas>'+
-        '</div>'+
-        '<div class="kpi-card fade-in"><div class="glow" style="background:'+COLORS.pink+';"></div>'+
           '<div class="kpi-top-row"><div class="kpi-icon" style="background:rgba(236,72,153,.18);color:'+COLORS.pink+';">'+ICONS.revenue+'</div></div>'+
           '<div class="kpi-label">Total Phlebotomy Revenue</div>'+
           '<div class="kpi-value num"><span style="font-size:16px;color:var(--ink-2);">£</span><span id="cntTopPhlebRev">0</span></div>'+
           '<canvas class="kpi-spark" id="sparkTopPhlebRev"></canvas>'+
+        '</div>'+
+        '<div class="kpi-card fade-in"><div class="glow" style="background:'+COLORS.pink+';"></div>'+
+          '<div class="kpi-top-row"><div class="kpi-icon" style="background:rgba(236,72,153,.18);color:'+COLORS.pink+';">'+ICONS.phleb+'</div><span class="kpi-trend up">P1 '+fmtNum(ph.totalP1)+' · P2 '+fmtNum(ph.totalP2)+'</span></div>'+
+          '<div class="kpi-label">Total Phlebotomy Sales</div>'+
+          '<div class="kpi-value num" id="cntTopPhleb">0</div>'+
+          '<canvas class="kpi-spark" id="sparkTopPhleb"></canvas>'+
         '</div>';
 
+      animateCounter(document.getElementById('cntTopCombinedRevenue'), combinedTotalRev, v=>Math.round(v).toLocaleString('en-GB'));
       animateCounter(document.getElementById('cntTopRevenue'), stats.totalRevenue, v=>Math.round(v).toLocaleString('en-GB'));
+      animateCounter(document.getElementById('cntTopRemaining'), stats.totalRemaining, v=>Math.round(v).toLocaleString('en-GB'));
       animateCounter(document.getElementById('cntTopStudents'), stats.totalOrders, v=>fmtNum(Math.round(v)));
-      animateCounter(document.getElementById('cntTopPhleb'), ph.total, v=>fmtNum(Math.round(v)));
       animateCounter(document.getElementById('cntTopPhlebRev'), ph.totalRevenue, v=>Math.round(v).toLocaleString('en-GB'));
+      animateCounter(document.getElementById('cntTopPhleb'), ph.total, v=>fmtNum(Math.round(v)));
+
+      drawSparkline(document.getElementById('sparkTopCombinedRevenue'), combinedTrendVals, COLORS.ilcBlue);
       drawSparkline(document.getElementById('sparkTopRevenue'), trendVals, COLORS.violet2);
-      drawSparkline(document.getElementById('sparkTopPhleb'), phTrendVals, COLORS.pink);
+      drawSparkline(document.getElementById('sparkTopRemaining'), remTrendVals, COLORS.gold2);
       drawSparkline(document.getElementById('sparkTopPhlebRev'), phRevenueTrendVals, COLORS.pink);
+      drawSparkline(document.getElementById('sparkTopPhleb'), phTrendVals, COLORS.pink);
 
     } else if(!qualOn && phlebOn){
       // Only Phlebotomy is checked for this agent
@@ -985,6 +1058,12 @@ function renderTopKpis(stats, cpd, ph, revChange){
           '<div class="kpi-value num"><span style="font-size:16px;color:var(--ink-2);">£</span><span id="cntTopRevenue">0</span></div>'+
           '<canvas class="kpi-spark" id="sparkTopRevenue"></canvas>'+
         '</div>'+
+        '<div class="kpi-card fade-in"><div class="glow" style="background:'+COLORS.gold+';"></div>'+
+          '<div class="kpi-top-row"><div class="kpi-icon" style="background:rgba(244,196,48,.18);color:'+COLORS.gold2+';">'+ICONS.instalment+'</div><span class="kpi-trend up" style="background:rgba(244,196,48,.15);color:'+COLORS.gold2+';">Pending</span></div>'+
+          '<div class="kpi-label">Pending Instalment Amount</div>'+
+          '<div class="kpi-value num"><span style="font-size:16px;color:var(--ink-2);">£</span><span id="cntTopRemaining">0</span></div>'+
+          '<canvas class="kpi-spark" id="sparkTopRemaining"></canvas>'+
+        '</div>'+
         '<div class="kpi-card fade-in"><div class="glow" style="background:'+COLORS.teal+';"></div>'+
           '<div class="kpi-top-row"><div class="kpi-icon" style="background:rgba(45,212,191,.18);color:'+COLORS.teal+';">'+ICONS.sales+'</div></div>'+
           '<div class="kpi-label">Total Qualification Sales</div>'+
@@ -1005,10 +1084,12 @@ function renderTopKpis(stats, cpd, ph, revChange){
         '</div>';
 
       animateCounter(document.getElementById('cntTopRevenue'), stats.totalRevenue, v=>Math.round(v).toLocaleString('en-GB'));
+      animateCounter(document.getElementById('cntTopRemaining'), stats.totalRemaining, v=>Math.round(v).toLocaleString('en-GB'));
       animateCounter(document.getElementById('cntTopStudents'), stats.totalOrders, v=>fmtNum(Math.round(v)));
       animateCounter(document.getElementById('cntTopAvg'), avgVal, v=>Math.round(v).toLocaleString('en-GB'));
       animateCounter(document.getElementById('cntTopCourseCount'), stats.courseAgg.length, v=>fmtNum(Math.round(v)));
       drawSparkline(document.getElementById('sparkTopRevenue'), trendVals, COLORS.violet2);
+      drawSparkline(document.getElementById('sparkTopRemaining'), remTrendVals, COLORS.gold2);
     }
 
   } else {
@@ -1019,6 +1100,12 @@ function renderTopKpis(stats, cpd, ph, revChange){
         '<div class="kpi-label">Total Qualification Revenue</div>'+
         '<div class="kpi-value num"><span style="font-size:16px;color:var(--ink-2);">£</span><span id="cntTopRevenue">0</span></div>'+
         '<canvas class="kpi-spark" id="sparkTopRevenue"></canvas>'+
+      '</div>'+
+      '<div class="kpi-card fade-in"><div class="glow" style="background:'+COLORS.gold+';"></div>'+
+        '<div class="kpi-top-row"><div class="kpi-icon" style="background:rgba(244,196,48,.18);color:'+COLORS.gold2+';">'+ICONS.instalment+'</div><span class="kpi-trend up" style="background:rgba(244,196,48,.15);color:'+COLORS.gold2+';">Pending</span></div>'+
+        '<div class="kpi-label">Pending Instalment Amount</div>'+
+        '<div class="kpi-value num"><span style="font-size:16px;color:var(--ink-2);">£</span><span id="cntTopRemaining">0</span></div>'+
+        '<canvas class="kpi-spark" id="sparkTopRemaining"></canvas>'+
       '</div>'+
       '<div class="kpi-card fade-in"><div class="glow" style="background:'+COLORS.teal+';"></div>'+
         '<div class="kpi-top-row"><div class="kpi-icon" style="background:rgba(45,212,191,.18);color:'+COLORS.teal+';">'+ICONS.sales+'</div></div>'+
@@ -1040,10 +1127,12 @@ function renderTopKpis(stats, cpd, ph, revChange){
       '</div>';
 
     animateCounter(document.getElementById('cntTopRevenue'), stats.totalRevenue, v=>Math.round(v).toLocaleString('en-GB'));
+    animateCounter(document.getElementById('cntTopRemaining'), stats.totalRemaining, v=>Math.round(v).toLocaleString('en-GB'));
     animateCounter(document.getElementById('cntTopStudents'), stats.totalOrders, v=>fmtNum(Math.round(v)));
     animateCounter(document.getElementById('cntTopPhleb'), ph.total, v=>fmtNum(Math.round(v)));
     animateCounter(document.getElementById('cntTopCpd'), cpd.totalCpd, v=>fmtNum(Math.round(v)));
     drawSparkline(document.getElementById('sparkTopRevenue'), trendVals, COLORS.violet2);
+    drawSparkline(document.getElementById('sparkTopRemaining'), remTrendVals, COLORS.gold2);
     drawSparkline(document.getElementById('sparkTopPhleb'), phTrendVals, COLORS.pink);
     drawSparkline(document.getElementById('sparkTopCpd'), cpdTrendVals, COLORS.orange);
   }

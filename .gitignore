@@ -31,3 +31,4 @@ desktop.ini
 # Temporary and log files
 *.log
 scratch/
+server.ps1
