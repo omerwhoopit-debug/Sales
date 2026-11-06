@@ -5,15 +5,13 @@
  * Instructions:
  * 1. Open your Google Sheet: https://docs.google.com/spreadsheets/d/1cwcPGApGD591-snDSS5QOUnUDjMDnwzFQ2ze7tjEzVk
  * 2. In the menu, click: Extensions > Apps Script
- * 3. Delete any existing code and paste this ENTIRE file.
- * 4. (Optional) Set SECURITY_TOKEN below if you want to restrict API access.
- * 5. Click "Deploy" > "New deployment"
- *    - Select type: "Web app"
- *    - Description: "Sales Dashboard Production API v2"
- *    - Execute as: "Me"
- *    - Who has access: "Anyone" (or anyone with link)
- * 6. Click "Deploy", Authorize access, and copy the resulting Web App URL ending in /exec.
- * 7. Add this URL to your Streamlit secrets or script.js.
+ * 3. Delete any existing code in Code.gs and paste this ENTIRE file.
+ * 4. In the top toolbar, select "testSheetData" and click "▶ Run".
+ *    Verify in the Execution log that Total Amount Col Index = 11 and Row 1 is £449!
+ * 5. Click "Deploy" > "Manage deployments"
+ *    - Click the Pencil icon (Edit) next to your active Web App
+ *    - Under "Version", select "New version"
+ *    - Click "Deploy"
  * ============================================================================
  */
 
@@ -24,6 +22,92 @@ var SECURITY_TOKEN = "";
 
 // Cache duration in seconds (0 = disabled, always fetch live data from Google Sheet)
 var CACHE_TTL_SECONDS = 0;
+
+// Helper: Clean currency and numeric strings (handles "£1,200", " 150 ", etc.)
+function parseAmount(val) {
+  if (typeof val === "number") return val;
+  if (!val) return 0;
+  var clean = String(val).replace(/[^0-9.-]/g, "");
+  return Number(clean) || 0;
+}
+
+// Helper: Find column index by matchers
+function findCol(header, matchers) {
+  for (var c = 0; c < header.length; c++) {
+    for (var m = 0; m < matchers.length; m++) {
+      if (header[c] === matchers[m]) return c;
+    }
+  }
+  for (var c2 = 0; c2 < header.length; c2++) {
+    for (var m2 = 0; m2 < matchers.length; m2++) {
+      if (header[c2].indexOf(matchers[m2]) !== -1) return c2;
+    }
+  }
+  return -1;
+}
+
+// Robust Date Normalizer (Handles locale swaps, date objects, and strings)
+function parseRowDate(dateVal, knownMonthIdx, knownYear) {
+  if (!dateVal) return "";
+  
+  // Case 1: Date object from Google Sheets
+  if (Object.prototype.toString.call(dateVal) === "[object Date]") {
+    var d = dateVal.getDate();
+    var m = dateVal.getMonth(); // 0-indexed
+    var y = dateVal.getFullYear();
+    
+    var finalDay = d;
+    var finalMonth = m;
+    var finalYear = (y >= 2020) ? y : knownYear;
+
+    if (m !== knownMonthIdx && (d - 1) === knownMonthIdx && m + 1 <= 31) {
+      finalMonth = knownMonthIdx;
+      finalDay = m + 1;
+    } else if (m === knownMonthIdx) {
+      finalDay = d;
+      finalMonth = m;
+    }
+
+    return finalYear + "-" + String(finalMonth + 1).padStart(2, "0") + "-" + String(finalDay).padStart(2, "0");
+  }
+
+  // Case 2: String representation
+  var str = String(dateVal).trim();
+  if (!str) return "";
+
+  if (/^\d{4}-\d{2}-\d{2}$/.test(str)) return str;
+
+  var parts = str.split(/[\/\-\.]/);
+  if (parts.length === 3) {
+    var p0 = parseInt(parts[0], 10);
+    var p1 = parseInt(parts[1], 10);
+    var p2 = parseInt(parts[2], 10);
+    var yr = (p2 >= 2020) ? p2 : (p2 < 100 ? 2000 + p2 : knownYear);
+
+    if (p0 > 12) {
+      return yr + "-" + String(p1).padStart(2, "0") + "-" + String(p0).padStart(2, "0");
+    } else if (p1 > 12) {
+      return yr + "-" + String(p0).padStart(2, "0") + "-" + String(p1).padStart(2, "0");
+    } else {
+      if (p1 - 1 === knownMonthIdx) {
+        return yr + "-" + String(p1).padStart(2, "0") + "-" + String(p0).padStart(2, "0");
+      } else if (p0 - 1 === knownMonthIdx) {
+        return yr + "-" + String(p0).padStart(2, "0") + "-" + String(p1).padStart(2, "0");
+      }
+      return yr + "-" + String(p1).padStart(2, "0") + "-" + String(p0).padStart(2, "0");
+    }
+  }
+
+  var numMatch = str.match(/\d+/);
+  if (numMatch) {
+    var dayNum = parseInt(numMatch[0], 10);
+    if (dayNum >= 1 && dayNum <= 31) {
+      return knownYear + "-" + String(knownMonthIdx + 1).padStart(2, "0") + "-" + String(dayNum).padStart(2, "0");
+    }
+  }
+
+  return str;
+}
 
 function doGet(e) {
   try {
@@ -51,7 +135,7 @@ function doGet(e) {
     var ss = SpreadsheetApp.getActiveSpreadsheet();
     var sheets = ss.getSheets();
 
-    // Matches tab names like "Jul-2026", "Aug-2026", "Aug-24", "Aug 2026", "August-2026", "Aug"
+    // Matches tab names like "Jul-2026", "Aug-2026", "Aug-24", "Aug 2026", "August-2026", "Nov-2026"
     var monthPattern = /^([A-Za-z]+)(?:[\s\-_]*(\d{2,4}))?$/;
     var monthOrder = {
       jan:0, january:0, feb:1, february:1, mar:2, march:2, apr:3, april:3,
@@ -66,99 +150,6 @@ function doGet(e) {
     var cpdRows = [];
     var phlebRows = [];
     var srCounter = 1;
-
-    // Helper: Clean currency and numeric strings (handles "£1,200", " 150 ", etc.)
-    function parseAmount(val) {
-      if (typeof val === "number") return val;
-      if (!val) return 0;
-      var clean = String(val).replace(/[^0-9.-]/g, "");
-      return Number(clean) || 0;
-    }
-
-    // Helper: Find column index by matchers
-    function findCol(header, matchers) {
-      for (var c = 0; c < header.length; c++) {
-        for (var m = 0; m < matchers.length; m++) {
-          if (header[c] === matchers[m]) return c;
-        }
-      }
-      for (var c2 = 0; c2 < header.length; c2++) {
-        for (var m2 = 0; m2 < matchers.length; m2++) {
-          if (header[c2].indexOf(matchers[m2]) !== -1) return c2;
-        }
-      }
-      return -1;
-    }
-
-    // Robust Date Normalizer (Handles locale swaps, date objects, and strings without breaking day > 12)
-    function parseRowDate(dateVal, knownMonthIdx, knownYear) {
-      if (!dateVal) return "";
-      
-      // Case 1: Date object from Google Sheets
-      if (Object.prototype.toString.call(dateVal) === "[object Date]") {
-        var d = dateVal.getDate();
-        var m = dateVal.getMonth(); // 0-indexed
-        var y = dateVal.getFullYear();
-        
-        var finalDay = d;
-        var finalMonth = m;
-        var finalYear = (y >= 2020) ? y : knownYear;
-
-        // If sheet locale swapped day/month for days <= 12:
-        if (m !== knownMonthIdx && (d - 1) === knownMonthIdx && m + 1 <= 31) {
-          finalMonth = knownMonthIdx;
-          finalDay = m + 1;
-        } else if (m === knownMonthIdx) {
-          finalDay = d;
-          finalMonth = m;
-        }
-
-        return finalYear + "-" + String(finalMonth + 1).padStart(2, "0") + "-" + String(finalDay).padStart(2, "0");
-      }
-
-      // Case 2: String representation
-      var str = String(dateVal).trim();
-      if (!str) return "";
-
-      // Check ISO format YYYY-MM-DD
-      if (/^\d{4}-\d{2}-\d{2}$/.test(str)) return str;
-
-      // Check DD/MM/YYYY or MM/DD/YYYY or DD-MM-YYYY
-      var parts = str.split(/[\/\-\.]/);
-      if (parts.length === 3) {
-        var p0 = parseInt(parts[0], 10);
-        var p1 = parseInt(parts[1], 10);
-        var p2 = parseInt(parts[2], 10);
-        var yr = (p2 >= 2020) ? p2 : (p2 < 100 ? 2000 + p2 : knownYear);
-
-        if (p0 > 12) {
-          // p0 must be Day, p1 is Month
-          return yr + "-" + String(p1).padStart(2, "0") + "-" + String(p0).padStart(2, "0");
-        } else if (p1 > 12) {
-          // p1 must be Day, p0 is Month
-          return yr + "-" + String(p0).padStart(2, "0") + "-" + String(p1).padStart(2, "0");
-        } else {
-          // Disambiguate using known tab month
-          if (p1 - 1 === knownMonthIdx) {
-            return yr + "-" + String(p1).padStart(2, "0") + "-" + String(p0).padStart(2, "0");
-          } else if (p0 - 1 === knownMonthIdx) {
-            return yr + "-" + String(p0).padStart(2, "0") + "-" + String(p1).padStart(2, "0");
-          }
-          return yr + "-" + String(p1).padStart(2, "0") + "-" + String(p0).padStart(2, "0");
-        }
-      }
-
-      // Fallback: Extract day number
-      var numMatch = str.match(/\d+/);
-      if (numMatch) {
-        var dayNum = parseInt(numMatch[0], 10);
-        if (dayNum >= 1 && dayNum <= 31) {
-          return knownYear + "-" + String(knownMonthIdx + 1).padStart(2, "0") + "-" + String(dayNum).padStart(2, "0");
-        }
-      }
-
-      return str;
-    }
 
     // Process all matching tabs
     sheets.forEach(function (sheet) {
@@ -178,9 +169,12 @@ function doGet(e) {
       var data = sheet.getDataRange().getValues();
       if (!data || data.length < 2) return;
 
-      var fullHeader = data[0].map(function (h) { return String(h || "").replace(/\s+/g, " ").trim().toLowerCase(); });
+      // Full header without any slice cutoff (handles spaces, newlines, lowercase)
+      var fullHeader = data[0].map(function (h) { 
+        return String(h || "").replace(/\s+/g, " ").trim().toLowerCase(); 
+      });
 
-      // Locate side tables anywhere in header
+      // Side tables
       var cpdSalesIdx = -1;
       for (var ci = 0; ci < fullHeader.length; ci++) {
         if (fullHeader[ci].indexOf("cpd sales") !== -1) { cpdSalesIdx = ci; break; }
@@ -193,13 +187,12 @@ function doGet(e) {
         }
       }
 
-      // Find Total Amount column across the full header
-      // (Exclude bare "full fee" so it never mistakenly matches column J "full fee/ installments")
+      // Column L: Total Amount / Total Course Fee
       var totalAmountCol = findCol(fullHeader, [
         "total amount", "total course fee", "total fee", "course fee", "total payable", "total amount payable", "full course fee"
       ]);
 
-      // Find Initial Deposit / Initial Amount column across the full header
+      // Column K: Initial Amount / Initial Deposit
       var depositCol = findCol(fullHeader, [
         "initial amount", "initial deposit", "initial deposit paid", "deposit paid", "deposit", "amount paid", "initial fee"
       ]);
@@ -213,7 +206,7 @@ function doGet(e) {
         }
       }
 
-      // Main Sales Table
+      // Main Sales Table Columns
       var col = {
         date:        findCol(fullHeader, ["date"]),
         order:       findCol(fullHeader, ["order no", "order"]),
@@ -240,9 +233,12 @@ function doGet(e) {
         var courseStr = col.course >= 0 ? String(row[col.course] || "").trim() : "";
         var collegeStr = col.college >= 0 ? String(row[col.college] || "").trim() : "";
         var typeVal = col.type >= 0 ? String(row[col.type] || "").trim() : "";
+        
         var amt = col.amount >= 0 ? parseAmount(row[col.amount]) : 0;
         var totalAmt = col.totalAmount >= 0 ? parseAmount(row[col.totalAmount]) : 0;
+        // Remaining Amount = Total Amount - Initial Deposit
         var remAmt = totalAmt > amt ? (totalAmt - amt) : 0;
+        
         var leadVal = col.lead >= 0 ? String(row[col.lead] || "").trim() : "";
         var agentVal = col.agent >= 0 ? String(row[col.agent] || "").trim() : "";
 
@@ -360,9 +356,7 @@ function putChunkedCache(cache, key, value, ttlSeconds) {
     for (var i = 0; i < numChunks; i++) {
       cache.put(key + "_" + i, value.substring(i * chunkSize, (i + 1) * chunkSize), ttlSeconds);
     }
-  } catch (err) {
-    // If cache fails, continue gracefully
-  }
+  } catch (err) {}
 }
 
 function getChunkedCache(cache, key) {
