@@ -178,7 +178,7 @@ function doGet(e) {
       var data = sheet.getDataRange().getValues();
       if (!data || data.length < 2) return;
 
-      var fullHeader = data[0].map(function (h) { return String(h || "").trim().toLowerCase(); });
+      var fullHeader = data[0].map(function (h) { return String(h || "").replace(/\s+/g, " ").trim().toLowerCase(); });
 
       // Locate side tables anywhere in header
       var cpdSalesIdx = -1;
