@@ -398,3 +398,32 @@ function createRawResponse(jsonString, e) {
 function createResponse(data, statusCode, e) {
   return createRawResponse(JSON.stringify(data), e);
 }
+
+// ============================================================================
+// TEST FUNCTION — RUN THIS INSIDE APPS SCRIPT TO VERIFY COLUMNS IMMEDIATELY
+// ============================================================================
+function testSheetData() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sheet = ss.getSheetByName("Nov-2026") || ss.getSheets()[0];
+  var data = sheet.getDataRange().getValues();
+  var fullHeader = data[0].map(function (h) { 
+    return String(h || "").replace(/\s+/g, " ").trim().toLowerCase(); 
+  });
+  Logger.log("Sheet name: " + sheet.getName());
+  Logger.log("Headers: " + JSON.stringify(fullHeader));
+  
+  var totalAmountCol = findCol(fullHeader, [
+    "total amount", "total course fee", "total fee", "course fee", "total payable", "total amount payable", "full course fee"
+  ]);
+  var depositCol = findCol(fullHeader, [
+    "initial amount", "initial deposit", "initial deposit paid", "deposit paid", "deposit", "amount paid", "initial fee"
+  ]);
+  
+  Logger.log("Total Amount Col Index: " + totalAmountCol + " (Header: " + (totalAmountCol >= 0 ? fullHeader[totalAmountCol] : "NOT FOUND") + ")");
+  Logger.log("Initial Deposit Col Index: " + depositCol + " (Header: " + (depositCol >= 0 ? fullHeader[depositCol] : "NOT FOUND") + ")");
+  if (data.length > 1) {
+    var amt = depositCol >= 0 ? parseAmount(data[1][depositCol]) : 0;
+    var tot = totalAmountCol >= 0 ? parseAmount(data[1][totalAmountCol]) : 0;
+    Logger.log("Row 1 Check: Initial Deposit = £" + amt + ", Total Course Fee = £" + tot + ", Remaining = £" + (tot - amt));
+  }
+}
