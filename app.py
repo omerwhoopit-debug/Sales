@@ -68,14 +68,22 @@ st.markdown("""
 # 3. Secret Resolution & Server-Side Fast Caching
 # -----------------------------------------------------------------------------
 DEFAULT_API_URL = "https://script.google.com/macros/s/AKfycbx1vCP09QjIYs63z_ylz3SAQRZvPS4_xW_q5iwGPAfNrJP66DLMHxIt5lvwx-CPY6Mlog/exec"
+DEPRECATED_API_URL = "AKfycbxObkoC7UcYGOs1dy4cAMYXbxCeCGadqsL1aBmhAFyz6RhlM5XruRIksrpAiW_8lkcD"
 
 def get_secret(key, default=""):
     try:
         if key in st.secrets:
-            return st.secrets[key]
+            val = str(st.secrets[key] or "").strip()
+            if key == "SHEET_API_URL" and DEPRECATED_API_URL in val:
+                return default
+            if val:
+                return val
     except Exception:
         pass
-    return os.environ.get(key, default)
+    env_val = os.environ.get(key, default)
+    if key == "SHEET_API_URL" and DEPRECATED_API_URL in str(env_val):
+        return default
+    return env_val
 
 SHEET_API_URL = get_secret("SHEET_API_URL", DEFAULT_API_URL)
 SECURITY_TOKEN = get_secret("SECURITY_TOKEN", "")
@@ -233,7 +241,14 @@ def fetch_cached_payload(api_url, token=""):
             if rows and len(rows) > 0 and isinstance(rows[0], dict) and "payload" in rows[0]:
                 payload = rows[0]["payload"]
                 if isinstance(payload, dict) and "sales" in payload and len(payload["sales"]) > 0:
-                    return payload
+                    # Validate that cached payload contains the new totalAmount/remainingAmount schema
+                    sales_sample = payload["sales"]
+                    has_new_schema = any(
+                        isinstance(s, dict) and ("totalAmount" in s or "remainingAmount" in s)
+                        for s in sales_sample[-50:]
+                    )
+                    if has_new_schema:
+                        return payload
     except Exception:
         pass
 

@@ -76,12 +76,20 @@ function sanitizeAndDeduplicateCpd(rows) {
 }
 
 // ---------------- Live data sync (Google Sheet via Apps Script) ----------------
+const DEPRECATED_SHEET_API_URL = "AKfycbxObkoC7UcYGOs1dy4cAMYXbxCeCGadqsL1aBmhAFyz6RhlM5XruRIksrpAiW_8lkcD";
+const DEFAULT_SHEET_API_URL = "https://script.google.com/macros/s/AKfycbx1vCP09QjIYs63z_ylz3SAQRZvPS4_xW_q5iwGPAfNrJP66DLMHxIt5lvwx-CPY6Mlog/exec";
+
 const SHEET_API_URL = (function(){
   try {
     const custom = localStorage.getItem('CUSTOM_SHEET_API_URL');
-    if(custom && custom.trim().startsWith('http')) return custom.trim();
+    if(custom && custom.trim().startsWith('http') && !custom.includes(DEPRECATED_SHEET_API_URL)) {
+      return custom.trim();
+    }
   } catch(e){}
-  return window.SHEET_API_URL || "https://script.google.com/macros/s/AKfycbx1vCP09QjIYs63z_ylz3SAQRZvPS4_xW_q5iwGPAfNrJP66DLMHxIt5lvwx-CPY6Mlog/exec";
+  if(window.SHEET_API_URL && !window.SHEET_API_URL.includes(DEPRECATED_SHEET_API_URL)) {
+    return window.SHEET_API_URL;
+  }
+  return DEFAULT_SHEET_API_URL;
 })();
 const REFRESH_INTERVAL_MS = 4000; // auto-refresh every 4 seconds to guarantee updates within 5s
 let _hasLoadedOnce = false;
@@ -3527,7 +3535,12 @@ const AuthService = (function(){
   async function startDataSync(){
     if(_activeSyncInterval) clearInterval(_activeSyncInterval);
     if(!_hasLoadedOnce){
-      if(window.INITIAL_DATA && Array.isArray(window.INITIAL_DATA.sales) && window.INITIAL_DATA.sales.length > 0){
+      const hasNewInstalmentSchema = (arr) => {
+        if(!Array.isArray(arr) || arr.length === 0) return false;
+        return arr.some(r => r && (r.remainingAmount !== undefined || r.totalAmount !== undefined));
+      };
+
+      if(window.INITIAL_DATA && Array.isArray(window.INITIAL_DATA.sales) && window.INITIAL_DATA.sales.length > 0 && hasNewInstalmentSchema(window.INITIAL_DATA.sales)){
         RAW_DATA = sanitizeAndDeduplicateSales(window.INITIAL_DATA.sales);
         CPD_DATA = sanitizeAndDeduplicateCpd(Array.isArray(window.INITIAL_DATA.cpd) ? window.INITIAL_DATA.cpd : []);
         PHLEB_DATA = Array.isArray(window.INITIAL_DATA.phleb) ? window.INITIAL_DATA.phleb : [];
@@ -3545,7 +3558,7 @@ const AuthService = (function(){
               .eq('id', 'latest')
               .maybeSingle();
 
-            if(cacheRow && cacheRow.payload && Array.isArray(cacheRow.payload.sales) && cacheRow.payload.sales.length > 0){
+            if(cacheRow && cacheRow.payload && Array.isArray(cacheRow.payload.sales) && cacheRow.payload.sales.length > 0 && hasNewInstalmentSchema(cacheRow.payload.sales)){
               RAW_DATA = sanitizeAndDeduplicateSales(cacheRow.payload.sales);
               CPD_DATA = sanitizeAndDeduplicateCpd(Array.isArray(cacheRow.payload.cpd) ? cacheRow.payload.cpd : []);
               PHLEB_DATA = Array.isArray(cacheRow.payload.phleb) ? cacheRow.payload.phleb : [];
