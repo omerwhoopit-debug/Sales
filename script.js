@@ -81,7 +81,7 @@ const SHEET_API_URL = (function(){
     const custom = localStorage.getItem('CUSTOM_SHEET_API_URL');
     if(custom && custom.trim().startsWith('http')) return custom.trim();
   } catch(e){}
-  return window.SHEET_API_URL || "https://script.google.com/macros/s/AKfycbxObkoC7UcYGOs1dy4cAMYXbxCeCGadqsL1aBmhAFyz6RhlM5XruRIksrpAiW_8lkcD/exec";
+  return window.SHEET_API_URL || "https://script.google.com/macros/s/AKfycbx1vCP09QjIYs63z_ylz3SAQRZvPS4_xW_q5iwGPAfNrJP66DLMHxIt5lvwx-CPY6Mlog/exec";
 })();
 const REFRESH_INTERVAL_MS = 4000; // auto-refresh every 4 seconds to guarantee updates within 5s
 let _hasLoadedOnce = false;

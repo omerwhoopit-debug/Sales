@@ -67,7 +67,7 @@ st.markdown("""
 # -----------------------------------------------------------------------------
 # 3. Secret Resolution & Server-Side Fast Caching
 # -----------------------------------------------------------------------------
-DEFAULT_API_URL = "https://script.google.com/macros/s/AKfycbxObkoC7UcYGOs1dy4cAMYXbxCeCGadqsL1aBmhAFyz6RhlM5XruRIksrpAiW_8lkcD/exec"
+DEFAULT_API_URL = "https://script.google.com/macros/s/AKfycbx1vCP09QjIYs63z_ylz3SAQRZvPS4_xW_q5iwGPAfNrJP66DLMHxIt5lvwx-CPY6Mlog/exec"
 
 def get_secret(key, default=""):
     try:
