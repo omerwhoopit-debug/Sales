@@ -79,7 +79,7 @@ function sanitizeAndDeduplicateCpd(rows) {
 const DEPRECATED_SHEET_API_URL = "AKfycbxObkoC7UcYGOs1dy4cAMYXbxCeCGadqsL1aBmhAFyz6RhlM5XruRIksrpAiW_8lkcD";
 const DEFAULT_SHEET_API_URL = "https://script.google.com/macros/s/AKfycbx1vCP09QjIYs63z_ylz3SAQRZvPS4_xW_q5iwGPAfNrJP66DLMHxIt5lvwx-CPY6Mlog/exec";
 
-const SHEET_API_URL = (function(){
+function getActiveSheetApiUrl(){
   try {
     const custom = localStorage.getItem('CUSTOM_SHEET_API_URL');
     if(custom && custom.trim().startsWith('http') && !custom.includes(DEPRECATED_SHEET_API_URL)) {
@@ -90,7 +90,35 @@ const SHEET_API_URL = (function(){
     return window.SHEET_API_URL;
   }
   return DEFAULT_SHEET_API_URL;
-})();
+}
+
+const SHEET_API_URL = getActiveSheetApiUrl();
+
+window.forceSyncNewApi = function(){
+  const url = DEFAULT_SHEET_API_URL;
+  try { localStorage.setItem('CUSTOM_SHEET_API_URL', url); } catch(e){}
+  window.SHEET_API_URL = url;
+  const cbName = '__forceSyncCb_' + Date.now();
+  const scriptEl = document.createElement('script');
+  window[cbName] = function(data){
+    if(data && Array.isArray(data.sales)){
+      RAW_DATA = sanitizeAndDeduplicateSales(data.sales);
+      if(data.cpd) CPD_DATA = sanitizeAndDeduplicateCpd(data.cpd);
+      if(data.phleb) PHLEB_DATA = data.phleb;
+      _lastDataFingerprint = computeDataFingerprint(RAW_DATA, CPD_DATA, PHLEB_DATA);
+      _hasLoadedOnce = true;
+      populateFilterOptions(true);
+      render();
+      console.log('✅ INSTANT SYNC COMPLETE! Total orders:', RAW_DATA.length);
+      const novWithInst = RAW_DATA.filter(r => r.remainingAmount > 0);
+      console.log('✅ Orders with remaining instalments:', novWithInst.length);
+    }
+    delete window[cbName];
+    if(scriptEl && scriptEl.parentNode) scriptEl.parentNode.removeChild(scriptEl);
+  };
+  scriptEl.src = url + '?callback=' + cbName + '&nocache=1&t=' + Date.now();
+  document.head.appendChild(scriptEl);
+};
 const REFRESH_INTERVAL_MS = 4000; // auto-refresh every 4 seconds to guarantee updates within 5s
 let _hasLoadedOnce = false;
 let _lastDataFingerprint = '';
@@ -251,9 +279,10 @@ async function loadData(isSilent = false){
       }
     };
 
-    const sep = SHEET_API_URL.includes('?') ? '&' : '?';
+    const activeApiUrl = getActiveSheetApiUrl();
+    const sep = activeApiUrl.includes('?') ? '&' : '?';
     scriptEl = document.createElement('script');
-    scriptEl.src = SHEET_API_URL + sep + 'callback=' + callbackName + '&nocache=1&t=' + Date.now();
+    scriptEl.src = activeApiUrl + sep + 'callback=' + callbackName + '&nocache=1&t=' + Date.now();
     scriptEl.onerror = function(){
       if(settled) return;
       settled = true;
