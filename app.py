@@ -93,8 +93,17 @@ SUPABASE_URL = get_secret("SUPABASE_URL", "https://zecdijliifdutyvvthbn.supabase
 SUPABASE_ANON_KEY = get_secret("SUPABASE_ANON_KEY", "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InplY2RpamxpaWZkdXR5dnZ0aGJuIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODg5NTc2NTIsImV4cCI6MjEwNDUzMzY1Mn0.ctQ8HM0xb7r8CZE6ZFIcSZNZ6vb1wHncU96xSLnnGhc")
 
 # -----------------------------------------------------------------------------
-# 3.1 REST API Route Handler for Deletions (?api=delete&type=user|agent&...)
+# 3.1 REST API Route Handler for Deletions & Health
 # -----------------------------------------------------------------------------
+if "api" in st.query_params and st.query_params.get("api") == "version":
+    st.json({
+        "status": "online",
+        "version": "v2.1-instalments",
+        "api_url": SHEET_API_URL,
+        "default_url": DEFAULT_API_URL
+    })
+    st.stop()
+
 if "api" in st.query_params and st.query_params.get("api") == "delete":
     del_type = st.query_params.get("type", "").lower()
     del_id = st.query_params.get("id", "")
